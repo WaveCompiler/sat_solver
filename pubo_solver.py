@@ -30,7 +30,7 @@ def parse_sat_prob(sat_prob):
 
     return num_vars, num_clauses, clauses
 
-def encode_sat_prob(sat_prob, device):
+def encode_sat_prob(sat_prob, device, sigma):
     num_vars, num_clauses, clauses = parse_sat_prob(sat_prob)
 
     bias = 0.0
@@ -63,6 +63,16 @@ def encode_sat_prob(sat_prob, device):
     sym_quadratic = quadratic + quadratic.T
     sym_cubic = cubic + cubic.permute(1, 0, 2) + cubic.permute(2, 1, 0) + cubic.permute(0, 2, 1) + cubic.permute(1, 2, 0) + cubic.permute(2, 0, 1)
 
+    # modeling non-symmetrical physical hardware
+    # apply programming-error noise (additive gaussian noise ONLY on non-zero entries)
+    if sigma:
+        linear_mask = (linear != 0)
+        linear += torch.randn_like(linear) * sigma * linear_mask
+        sym_quadratic_mask = (sym_quadratic != 0)
+        sym_quadratic += torch.randn_like(sym_quadratic) * sigma * sym_quadratic_mask
+        sym_cubic_mask = (sym_cubic != 0)
+        sym_cubic += torch.randn_like(sym_cubic) * sigma * sym_cubic_mask
+    
     return {
         "bias": bias,
         "linear": linear,
@@ -75,8 +85,10 @@ def encode_sat_prob(sat_prob, device):
         "clauses": clauses
     }
 
-def solution_found(s, encode):
-    return pu.compute_energy(s, encode).item() == 0.0
+def solution_found(spins, encode):
+    clauses = encode["clauses"]
+    is_satisfied = pu.count_unsatisfied_clauses(spins, clauses) == 0
+    return is_satisfied
 
 def compute_gradient(spins, encode):
     linear = encode["linear"]
@@ -143,17 +155,21 @@ if __name__ == "__main__":
     print("="*80)
     print("start encoding...")
 
-    # file_path = "/home/taehy/sat/sat_problem_dataset/uf100-430.tar/uf100-01.cnf"
+    file_path = "/home/taehy/sat/sat_problem_dataset/uf100-430.tar/uf100-01.cnf"
     # file_path = "/home/taehy/sat/sat_problem_dataset/uuf100-430.tar/UUF100.430.1000/uuf100-01.cnf"
     # file_path = "/home/taehy/sat/sat_problem_dataset/uf150-645.tar/ai/hoos/Research/SAT/Formulae/UF150.645.100/uf150-01.cnf"
     # file_path = "/home/taehy/sat/sat_problem_dataset/uf200-860.tar/uf200-860/uf200-01.cnf"
-    file_path = "/home/taehy/sat/sat_problem_dataset/uf250-1065.tar/uf250-1065/ai/hoos/Shortcuts/UF250.1065.100/uf250-08.cnf"
+    # file_path = "/home/taehy/sat/sat_problem_dataset/uf250-1065.tar/uf250-1065/ai/hoos/Shortcuts/UF250.1065.100/uf250-09.cnf"
     sat_prob = open(file_path, "r")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device: {device}")
 
-    encode = encode_sat_prob(sat_prob, device)
+    #!!! higher sigma for higher randomness !!!
+    sigma = 2 ** -8
+    print(f"sigma: {sigma:.8f}")
+
+    encode = encode_sat_prob(sat_prob, device, sigma)
     print(f"num_vars: {encode['num_vars']}")
     print(f"num_clauses: {encode['num_clauses']}")
 
@@ -162,18 +178,24 @@ if __name__ == "__main__":
     print("start decoding...")
 
     # for smaller problem size
-    # steps = 2000
-    # start_temp = 1.0
-    # end_temp = 0.001
-    # group = encode["num_vars"] // 2
-    # log_interval = 200
+    steps = 2000
+    start_temp = 1.0
+    end_temp = 0.001
+    group = encode["num_vars"] // 2
+    log_interval = 200
 
     # for larger problem size
-    steps = 10000
-    start_temp = 5.0
-    end_temp = 0.0001
-    group = encode["num_vars"] // 2
-    log_interval = 500
+    # steps = 10000
+    # start_temp = 5.0
+    # end_temp = 0.0001
+    # group = encode["num_vars"] // 2
+    # log_interval = 500
+
+    print(f"steps: {steps}")
+    print(f"start_temp: {start_temp}")
+    print(f"end_temp: {end_temp}")
+    print(f"group: {group}")
+    print(f"log_interval: {log_interval}")
 
     is_satisfied = False
     count = 0
