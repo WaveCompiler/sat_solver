@@ -1,0 +1,8 @@
+# Ignore a specific file
+github_pat.txt
+
+# Ignore a whole directory
+__pycache__/
+
+# Ignore all files with a specific extension
+
