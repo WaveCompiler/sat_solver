@@ -15,9 +15,9 @@ LOG_INTERVAL = 1
 PENALTY = 1
 
 # plot
-MULTIPLE_FILES_PATH = "/home/taehy/sat/sat_problem_dataset/uf100-430.tar/*.cnf"
+# MULTIPLE_FILES_PATH = "/home/taehy/sat/sat_problem_dataset/uf100-430.tar/*.cnf"
 # MULTIPLE_FILES_PATH = "/home/taehy/sat/sat_problem_dataset/uf150-645.tar/ai/hoos/Research/SAT/Formulae/UF150.645.100/*.cnf"
 # MULTIPLE_FILES_PATH = "/home/taehy/sat/sat_problem_dataset/uf200-860.tar/uf200-860/*.cnf"
-# MULTIPLE_FILES_PATH = "/home/taehy/sat/sat_problem_dataset/uf250-1065.tar/uf250-1065/ai/hoos/Shortcuts/UF250.1065.100/*.cnf"
+MULTIPLE_FILES_PATH = "/home/taehy/sat/sat_problem_dataset/uf250-1065.tar/uf250-1065/ai/hoos/Shortcuts/UF250.1065.100/*.cnf"
 INSTANCE = 10
 RUNS_PER_INSTANCE = 100

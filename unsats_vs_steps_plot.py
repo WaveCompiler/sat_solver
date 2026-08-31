@@ -79,7 +79,6 @@ if __name__ == "__main__":
                 alpha=alpha,
                 linewidth=0,
             )
-        # Solid Mean Line
         plt.plot(
             steps_x,
             np.mean(mat, axis=0),
