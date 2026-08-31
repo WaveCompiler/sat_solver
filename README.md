@@ -8,4 +8,5 @@
 python pubo_solver.py
 python qubo_solver.py
 python unsats_vs_steps_plot.py
+python simulated_annealing_plot.py
 ```
