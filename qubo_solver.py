@@ -1,15 +1,17 @@
 import torch
 import utils
 
-def pubo_encode_sat_prob(sat_prob, device, sigma):
+def qubo_encode_sat_prob(sat_prob, device, sigma, penalty):
     num_vars, num_clauses, clauses = utils.parse_sat_prob(sat_prob)
+    total_num_vars = num_vars + num_clauses
 
     bias = 0.0
-    linear = torch.zeros(num_vars, dtype=torch.float32, device=device)
-    quadratic = torch.zeros((num_vars, num_vars), dtype=torch.float32, device=device)
-    cubic = torch.zeros((num_vars, num_vars, num_vars), dtype=torch.float32, device=device)
+    linear = torch.zeros(total_num_vars, dtype=torch.float32, device=device)
+    quadratic = torch.zeros((total_num_vars, total_num_vars), dtype=torch.float32, device=device)
 
-    for clause in clauses:
+    for c_idx, clause in enumerate(clauses):
+        y_idx = num_vars + c_idx
+
         terms = []
         for x_idx in clause:
             idx = abs(x_idx) - 1
@@ -20,20 +22,39 @@ def pubo_encode_sat_prob(sat_prob, device, sigma):
 
         terms.sort(key=lambda item: item[0])
 
-        (i, c1, x1), (j, c2, x2), (k, c3, x3) = terms
-        bias += c1 * c2 * c3
-        linear[i] += x1 * c2 * c3
-        linear[j] += c1 * x2 * c3
-        linear[k] += c1 * c2 * x3
-        quadratic[i, j] += x1 * x2 * c3
-        quadratic[i, k] += x1 * c2 * x3
-        quadratic[j, k] += c1 * x2 * x3
-        cubic[i, j, k] += x1 * x2 * x3
+        (pivot_idx, pivot_c, pivot_x), (q_idx, q_c, q_x), (r_idx, r_c, r_x) = terms
+
+        # pivot
+        linear[y_idx] += pivot_c
+        i_p, i_y = sorted([pivot_idx, y_idx])
+        quadratic[i_p, i_y] += pivot_x
+
+        # rosenberg penalty
+        # p * (q * r - 2 * q * y - 2 * r * y + 3 * y)
+
+        # p * q * r
+        bias += penalty * (q_c * r_c)
+        linear[q_idx] += penalty * (q_x * r_c)
+        linear[r_idx] += penalty * (q_c * r_x)
+        i_q, i_r = sorted([q_idx, r_idx])
+        quadratic[i_q, i_r] += penalty * (q_x * r_x)
+
+        # -2 * p * q * y
+        linear[y_idx] += -2.0 * penalty * q_c
+        i_q, i_y = sorted([q_idx, y_idx])
+        quadratic[i_q, i_y] += -2.0 * penalty * q_x
+
+        # -2 * p * r * y
+        linear[y_idx] += -2.0 * penalty * r_c
+        i_r, i_y = sorted([r_idx, y_idx])
+        quadratic[i_r, i_y] += -2.0 * penalty * r_x
+
+        # 3 * p * y
+        linear[y_idx] += 3.0 * penalty
 
     # pre-symmetrize tensors to optimize GPU compute_gradient
     sym_quadratic = quadratic + quadratic.T
-    sym_cubic = cubic + cubic.permute(1, 0, 2) + cubic.permute(2, 1, 0) + cubic.permute(0, 2, 1) + cubic.permute(1, 2, 0) + cubic.permute(2, 0, 1)
-
+    
     # modeling non-symmetrical physical hardware
     # apply programming-error noise (additive gaussian noise ONLY on non-zero entries)
     if sigma:
@@ -41,27 +62,25 @@ def pubo_encode_sat_prob(sat_prob, device, sigma):
         linear += torch.randn_like(linear) * sigma * linear_mask
         sym_quadratic_mask = (sym_quadratic != 0)
         sym_quadratic += torch.randn_like(sym_quadratic) * sigma * sym_quadratic_mask
-        sym_cubic_mask = (sym_cubic != 0)
-        sym_cubic += torch.randn_like(sym_cubic) * sigma * sym_cubic_mask
     
     return {
         "bias": bias,
         "linear": linear,
         "quadratic": quadratic,
-        "cubic": cubic,
         "sym_quadratic": sym_quadratic,
-        "sym_cubic": sym_cubic,
         "num_vars": num_vars,
         "num_clauses": num_clauses,
+        "total_num_vars": total_num_vars,
         "clauses": clauses
     }
 
-def pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval):
+def qubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval):
     print("-"*80)
+    total_num_vars = encode["total_num_vars"]
     num_vars = encode["num_vars"]
     clauses = encode["clauses"]
         
-    spins = torch.randint(0, 2, (num_vars,), dtype=torch.float32, device=device)
+    spins = torch.randint(0, 2, (total_num_vars,), dtype=torch.float32, device=device)
     
     for step in range(steps):
         # temperature cooling process
@@ -71,16 +90,16 @@ def pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, 
         current_temp = start_temp * decay_factor
 
         # choose batch indices
-        batch_indices = None
         if step % 2 == 0:
             # permutation 2-step group(batch_indices) selection strategy
-            all_indices = torch.randperm(num_vars, device=device)
+            all_indices = torch.randperm(total_num_vars, device=device)
             batch_indices = all_indices[:group]
-            complement_indices = all_indices[group:]
         else:
-            batch_indices = complement_indices
+            mask = torch.ones(total_num_vars, dtype=torch.bool, device=device)
+            mask[batch_indices] = False
+            batch_indices = torch.arange(total_num_vars, device=device)[mask]
             
-        gradient = utils.pubo_compute_gradient(spins, encode)
+        gradient = utils.qubo_compute_gradient(spins, encode)
 
         # add randomness for gradient descent
         scale_noise = torch.rand(len(batch_indices), device=device) * 2 * current_temp
@@ -89,14 +108,14 @@ def pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, 
         spins[batch_indices] = (gradient[batch_indices] < random_noise).float()
 
         if step % log_interval == 0 or step == steps - 1:
-            current_energy = utils.pubo_compute_energy(spins, encode).item()
-            unsatisfied = utils.count_unsatisfied_clauses(spins, clauses)
+            current_energy = utils.qubo_compute_energy(spins, encode).item()
+            unsatisfied = utils.count_unsatisfied_clauses(spins[:num_vars], clauses)
             utils.print_solver_metrics(step, current_temp, current_energy, unsatisfied)
 
-        is_satisfied = utils.solution_found(spins, encode)
+        is_satisfied = utils.solution_found(spins[:num_vars], encode)
         if is_satisfied:
             current_energy = utils.pubo_compute_energy(spins, encode).item()
-            unsatisfied = utils.count_unsatisfied_clauses(spins, clauses)
+            unsatisfied = utils.count_unsatisfied_clauses(spins[:num_vars], clauses)
             utils.print_solver_metrics(step, current_temp, current_energy, unsatisfied)
             print(f"solution found at step {step}!")
             break
@@ -123,7 +142,11 @@ if __name__ == "__main__":
     sigma = 2 ** -8
     print(f"sigma: {sigma:.8f}")
 
-    encode = pubo_encode_sat_prob(sat_prob, device, sigma)
+    #!!! higher penalty for higher randomness !!!
+    penalty = 2
+    print(f"penalty: {penalty:.8f}")
+
+    encode = qubo_encode_sat_prob(sat_prob, device, sigma, penalty)
     print(f"num_vars: {encode['num_vars']}")
     print(f"num_clauses: {encode['num_clauses']}")
 
@@ -135,14 +158,14 @@ if __name__ == "__main__":
     steps = 2000
     start_temp = 5.0
     end_temp = 0.001
-    group = encode["num_vars"] // 2
+    group = encode["total_num_vars"] // 2
     log_interval = 200
 
     # for larger problem size
     # steps = 10000
     # start_temp = 5.0
     # end_temp = 0.0001
-    # group = encode["num_vars"] // 2
+    # group = encode["total_num_vars"] // 2
     # log_interval = 500
 
     print(f"steps: {steps}")
@@ -155,7 +178,7 @@ if __name__ == "__main__":
     count = 0
     spins = None
     while not is_satisfied:
-        spins, is_satisfied = pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval)
+        spins, is_satisfied = qubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval)
 
         if is_satisfied:
             break
@@ -169,5 +192,5 @@ if __name__ == "__main__":
     print(f"re-run count: {count}")
 
     print("="*80)
-    utils.pubo_generate_all_visualizations(encode)
+    # utils.pubo_generate_all_visualizations(encode)
     print("="*80)
