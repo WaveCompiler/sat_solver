@@ -1,5 +1,6 @@
 import torch
 import utils
+import config
 
 def qubo_encode_sat_prob(sat_prob, device, sigma, penalty):
     num_vars, num_clauses, clauses = utils.parse_sat_prob(sat_prob)
@@ -128,22 +129,18 @@ if __name__ == "__main__":
     print("="*80)
     print("start encoding...")
 
-    file_path = "/home/taehy/sat/sat_problem_dataset/uf100-430.tar/uf100-01.cnf"
-    # file_path = "/home/taehy/sat/sat_problem_dataset/uuf100-430.tar/UUF100.430.1000/uuf100-01.cnf"
-    # file_path = "/home/taehy/sat/sat_problem_dataset/uf150-645.tar/ai/hoos/Research/SAT/Formulae/UF150.645.100/uf150-01.cnf"
-    # file_path = "/home/taehy/sat/sat_problem_dataset/uf200-860.tar/uf200-860/uf200-01.cnf"
-    # file_path = "/home/taehy/sat/sat_problem_dataset/uf250-1065.tar/uf250-1065/ai/hoos/Shortcuts/UF250.1065.100/uf250-09.cnf"
+    file_path = config.FILE_PATH 
     sat_prob = open(file_path, "r")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device: {device}")
 
     #!!! higher sigma for higher randomness !!!
-    sigma = 2 ** -8
+    sigma = config.SIGMA
     print(f"sigma: {sigma:.8f}")
 
     #!!! higher penalty for higher randomness !!!
-    penalty = 2
+    penalty = config.PENALTY
     print(f"penalty: {penalty:.8f}")
 
     encode = qubo_encode_sat_prob(sat_prob, device, sigma, penalty)
@@ -155,19 +152,11 @@ if __name__ == "__main__":
     print("start decoding...")
 
     # for smaller problem size
-    steps = 2000
-    start_temp = 5.0
-    end_temp = 0.001
+    steps = config.STEPS
+    start_temp = config.START_TEMP
+    end_temp = config.END_TEMP
     group = encode["total_num_vars"] // 2
-    log_interval = 200
-
-    # for larger problem size
-    # steps = 10000
-    # start_temp = 5.0
-    # end_temp = 0.0001
-    # group = encode["total_num_vars"] // 2
-    # log_interval = 500
-
+    log_interval = config.LOG_INTERVAL
     print(f"steps: {steps}")
     print(f"start_temp: {start_temp}")
     print(f"end_temp: {end_temp}")
