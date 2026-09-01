@@ -84,6 +84,18 @@ def pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, 
         gradient = utils.pubo_compute_gradient(spins, encode)
 
         # add randomness for gradient descent
+        # binary gradient theory & intuition (for noise construction & comparison with the actual gradient)
+        # 1. why math works: E(s) is linear in s_i since s_i^2 = s_i (binary).
+        #    E(s_i) = A * s_i + B  =>  dE/ds_i = A <= achieved by gradient descent. actual gradient descent.
+        #    E(s_i=1) - E(s_i=0) = (A + B) - B = A <= achieved by mathmatical intuition. we add randomness here to make noise.
+        #    thus, grad_i = dE/ds_i = E(s_i=1) - E(s_i=0) = A
+        #
+        # 2. decision logic:
+        #    grad < 0  =>  E(s_i=1) < E(s_i=0)  =>  turning on LOWERS energy  => target s_i = 1
+        #    grad > 0  =>  E(s_i=1) > E(s_i=0)  =>  turning ON RAISES energy  => target s_i = 0
+        #
+        # 3. update rule:
+        #    (grad_i < noise) sets s_i = 1 when grad is negative, s_i = 0 when grad is positive.
         scale_noise = torch.rand(len(batch_indices), device=device) * 2 * current_temp
         shift_left = current_temp
         random_noise = scale_noise - shift_left
