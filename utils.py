@@ -135,6 +135,13 @@ def verify_and_print_clauses(spins, clauses):
     print(f"Summary: {satisfied_count}/{total_clauses} clauses satisfied.")
     print("="*80)
 
+def get_success_rate(spins, encode, len_clauses):
+    clauses = encode["clauses"]
+    unsatisfied = count_unsatisfied_clauses(spins, clauses)
+    satisfied = len_clauses - unsatisfied
+    success_rate = satisfied / len_clauses
+    return success_rate
+
 # graph
 def pubo_visualize_1d_linear(encode, output_dir="./visualizations"):
     """
