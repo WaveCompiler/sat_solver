@@ -57,14 +57,14 @@ def pubo_encode_sat_prob(sat_prob, device, sigma):
         "clauses": clauses
     }
 
-def pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval):
-    print("-"*80)
+def pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval, batch_size):
+    # print("-"*80)
     num_vars = encode["num_vars"]
     clauses = encode["clauses"]
     len_clauses = len(clauses)
-        
-    spins = torch.randint(0, 2, (num_vars,), dtype=torch.float32, device=device)
-    
+
+    spins = torch.randint(0, 2, (batch_size, num_vars), dtype=torch.float32, device=device)
+
     for step in range(steps):
         # temperature cooling process
         cooling_ratio = end_temp / start_temp
@@ -97,28 +97,18 @@ def pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, 
         #
         # 3. update rule:
         #    (grad_i < noise) sets s_i = 1 when grad is negative, s_i = 0 when grad is positive.
-        scale_noise = torch.rand(len(batch_indices), device=device) * 2 * current_temp
+        scale_noise = torch.rand((batch_size, len(batch_indices)), device=device) * 2 * current_temp
         shift_left = current_temp
         random_noise = scale_noise - shift_left
-        spins[batch_indices] = (gradient[batch_indices] < random_noise).float()
+        grad_sub = gradient[:, batch_indices]
+        spins[:, batch_indices] = (grad_sub < random_noise).float()
+
+        rates = utils.get_success_rates(spins, encode, len_clauses)
 
         if step % log_interval == 0 or step == steps - 1:
-            current_energy = utils.pubo_compute_energy(spins, encode).item()
-            unsatisfied = utils.count_unsatisfied_clauses(spins, clauses)
-            utils.print_solver_metrics(step, current_temp, current_energy, unsatisfied)
-
-        rate = utils.get_success_rate(spins, encode, len_clauses)
-        if rate >= config.TARGET_SUCESS_RATE:
-            current_energy = utils.pubo_compute_energy(spins, encode).item()
-            unsatisfied = utils.count_unsatisfied_clauses(spins, clauses)
-            satisfied = len_clauses - unsatisfied
-            utils.print_solver_metrics(step, current_temp, current_energy, unsatisfied)
-            print(f"solution found at step: {step} | rate: {rate} | satisfied/total {satisfied}/{len_clauses}")
-            break
-
-    print("-"*80)
+            utils.print_solver_metrics(step, steps, current_temp, spins, encode, len_clauses)
     
-    return spins, rate
+    return rates
 
 if __name__ == "__main__":
     print("="*80)
@@ -148,20 +138,18 @@ if __name__ == "__main__":
     end_temp = config.END_TEMP
     group = encode["num_vars"] // 2
     log_interval = config.LOG_INTERVAL
+    batch_size = config.BATCH_SIZE
     print(f"steps: {steps}")
     print(f"start_temp: {start_temp}")
     print(f"end_temp: {end_temp}")
     print(f"group: {group}")
     print(f"log_interval: {log_interval}")
+    print(f"batch_size: {batch_size}")
 
-    count = 0
-    spins = None
-    success_rate = 0
-    for i in range(100):
-        spins, success_rate = pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval)
-        if success_rate >= config.TARGET_SUCESS_RATE:
-            count += 1
-    print(f"success count: {count}")
+    rates = pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval, batch_size)
+    successful_runs = rates >= config.TARGET_SUCCESS_RATE 
+    success_count = successful_runs.sum().item()
+    print(f"success_count: {success_count}")
     
     print("end decoding...")
     print("="*80)

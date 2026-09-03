@@ -75,14 +75,14 @@ def qubo_encode_sat_prob(sat_prob, device, sigma, penalty):
         "clauses": clauses
     }
 
-def qubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval):
-    print("-"*80)
+def qubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval, batch_size):
+    # print("-"*80)
     total_num_vars = encode["total_num_vars"]
     num_vars = encode["num_vars"]
     clauses = encode["clauses"]
     len_clauses = len(clauses)
-        
-    spins = torch.randint(0, 2, (total_num_vars,), dtype=torch.float32, device=device)
+
+    spins = torch.randint(0, 2, (batch_size, total_num_vars), dtype=torch.float32, device=device)
     
     for step in range(steps):
         # temperature cooling process
@@ -93,39 +93,27 @@ def qubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, 
 
         # choose batch indices
         if step % 2 == 0:
-            # permutation 2-step group(batch_indices) selection strategy
             all_indices = torch.randperm(total_num_vars, device=device)
             batch_indices = all_indices[:group]
+            complement_indices = all_indices[group:]
         else:
-            mask = torch.ones(total_num_vars, dtype=torch.bool, device=device)
-            mask[batch_indices] = False
-            batch_indices = torch.arange(total_num_vars, device=device)[mask]
-            
+            batch_indices = complement_indices
+
         gradient = utils.qubo_compute_gradient(spins, encode)
 
-        # add randomness for gradient descent
-        scale_noise = torch.rand(len(batch_indices), device=device) * 2 * current_temp
+        scale_noise = torch.rand((batch_size, len(batch_indices)), device=device) * 2 * current_temp
         shift_left = current_temp
         random_noise = scale_noise - shift_left
-        spins[batch_indices] = (gradient[batch_indices] < random_noise).float()
+        grad_sub = gradient[:, batch_indices]
+        spins[:, batch_indices] = (grad_sub < random_noise).float()
 
         if step % log_interval == 0 or step == steps - 1:
-            current_energy = utils.qubo_compute_energy(spins, encode).item()
-            unsatisfied = utils.count_unsatisfied_clauses(spins[:num_vars], clauses)
-            utils.print_solver_metrics(step, current_temp, current_energy, unsatisfied)
+            utils.print_solver_metrics(step, steps, current_temp, spins, encode, len_clauses)
 
-        rate = utils.get_success_rate(spins, encode, len_clauses)
-        if rate >= config.TARGET_SUCESS_RATE:
-            current_energy = utils.qubo_compute_energy(spins, encode).item()
-            unsatisfied = utils.count_unsatisfied_clauses(spins, clauses)
-            satisfied = len_clauses - unsatisfied
-            utils.print_solver_metrics(step, current_temp, current_energy, unsatisfied)
-            print(f"solution found at step: {step} | rate: {rate} | satisfied/total {satisfied}/{len_clauses}")
-            break
-
-    print("-"*80)
+    rates = utils.get_success_rates(spins[:, :num_vars], encode, len_clauses)
+    # print("-"*80)
     
-    return spins, rate
+    return rates
 
 if __name__ == "__main__":
     print("="*80)
@@ -159,21 +147,19 @@ if __name__ == "__main__":
     end_temp = config.END_TEMP
     group = encode["total_num_vars"] // 2
     log_interval = config.LOG_INTERVAL
+    batch_size = config.BATCH_SIZE
     print(f"steps: {steps}")
     print(f"start_temp: {start_temp}")
     print(f"end_temp: {end_temp}")
     print(f"group: {group}")
     print(f"log_interval: {log_interval}")
+    print(f"batch_size: {batch_size}")
 
-    count = 0
-    spins = None
-    success_rate = 0
-    for i in range(100):
-        spins, success_rate = qubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval)
-        if success_rate >= config.TARGET_SUCESS_RATE:
-            count += 1
-    print(f"success count: {count}")
-
+    rates = qubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval, batch_size)
+    successful_runs = rates >= config.TARGET_SUCCESS_RATE 
+    success_count = successful_runs.sum().item()
+    print(f"success_count: {success_count}")
+    
     print("end decoding...")
     print("="*80)
 

@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 import os
+import config
 
 # compute
 def parse_sat_prob(sat_prob):
@@ -37,22 +38,20 @@ def pubo_compute_gradient(spins, encode):
     linear = encode["linear"]
     sym_quadratic = encode["sym_quadratic"]
     sym_cubic = encode["sym_cubic"]
-    
-    gradient = linear.clone()
-    gradient += torch.matmul(sym_quadratic, spins)
 
-    cubic_gradient_term = 'ijk,j,k->i'
+    gradient = linear.unsqueeze(0).expand(spins.shape[0], -1).clone()
+    gradient += torch.matmul(spins, sym_quadratic)
+    cubic_gradient_term = 'ijk,bj,bk->bi'
     cubic_term = torch.einsum(cubic_gradient_term, sym_cubic, spins, spins)
     gradient += 0.5 * cubic_term
     return gradient
 
 def qubo_compute_gradient(spins, encode):
-    linear = encode["linear"]
-    sym_quadratic = encode["sym_quadratic"]
+    linear = encode["linear"]                # Shape: (total_num_vars,)
+    sym_quadratic = encode["sym_quadratic"]  # Shape: (total_num_vars, total_num_vars)
     
-    gradient = linear.clone()
-    gradient += torch.matmul(sym_quadratic, spins)
-    gradient -= torch.diag(sym_quadratic) * spins
+    gradient = linear.unsqueeze(0).expand(spins.shape[0], -1).clone()
+    gradient += torch.matmul(spins, sym_quadratic)
     return gradient
 
 def pubo_compute_energy(spins, encode):
@@ -71,27 +70,13 @@ def qubo_compute_energy(spins, encode):
     bias = encode["bias"]
     linear = encode["linear"]
     quadratic = encode["quadratic"]
-    
-    energy = bias + torch.dot(linear, spins)
-    energy += torch.sum(quadratic * torch.outer(spins, spins))
-    return energy
 
-def count_unsatisfied_clauses(spins, clauses):
-    spins_cpu = spins.cpu().tolist()
-    unsatisfied = 0
-    for clause in clauses:
-        clause_satisfied = False
-        for idx in clause:
-            pos_idx = abs(idx) - 1
-            val = spins_cpu[pos_idx]
-            if (idx > 0 and val == 1.0) or (idx < 0 and val == 0.0):
-                clause_satisfied = True
-                break
+    linear_energy = torch.matmul(spins, linear)
+    quad_interaction = torch.matmul(spins, quadratic)
+    quad_energy = (spins * quad_interaction).sum(dim=1)
 
-        if not clause_satisfied:
-            unsatisfied += 1
-
-    return unsatisfied
+    total_energy = bias + linear_energy + quad_energy
+    return total_energy
 
 def solution_found(spins, encode):
     clauses = encode["clauses"]
@@ -135,12 +120,58 @@ def verify_and_print_clauses(spins, clauses):
     print(f"Summary: {satisfied_count}/{total_clauses} clauses satisfied.")
     print("="*80)
 
-def get_success_rate(spins, encode, len_clauses):
+def count_unsatisfied_clauses(spins, clauses):
+    batch_size = spins.shape[0]
+    device = spins.device
+
+    unsatisfied_counts = torch.zeros(batch_size, device=device)
+    for clause in clauses:
+        clause_satisfied = torch.zeros(batch_size, dtype=torch.bool, device=device)
+
+        for idx in clause:
+            pos_idx = abs(idx) - 1
+            if idx > 0:
+                clause_satisfied |= (spins[:, pos_idx] == 1.0)
+            else:
+                clause_satisfied |= (spins[:, pos_idx] == 0.0)
+
+        unsatisfied_counts += (~clause_satisfied).float()
+    return unsatisfied_counts
+
+def get_success_rates(spins, encode, len_clauses):
     clauses = encode["clauses"]
     unsatisfied = count_unsatisfied_clauses(spins, clauses)
     satisfied = len_clauses - unsatisfied
-    success_rate = satisfied / len_clauses
-    return success_rate
+    success_rates = satisfied / len_clauses
+    return success_rates
+
+def print_solver_metrics(step, total_steps, current_temp, spins, encode, len_clauses):
+    """
+    Prints solver execution metrics aggregated across the current batch.
+    """
+    # Compute batched metrics on GPU
+    energies = qubo_compute_energy(spins, encode)
+    rates = get_success_rates(spins[:, :encode["num_vars"]], encode, len_clauses)
+    unsatisfied = count_unsatisfied_clauses(spins[:, :encode["num_vars"]], encode["clauses"])
+    satisfied = len_clauses - unsatisfied
+
+    # Calculate statistics across the batch
+    mean_energy = energies.mean().item()
+    min_energy = energies.min().item()
+    mean_satisfied = satisfied.mean().item()
+    max_satisfied = satisfied.max().item()
+    success_count = (rates >= config.TARGET_SUCCESS_RATE).sum().item()
+    batch_size = spins.shape[0]
+
+    # Format step padding dynamically
+    step_fmt = f"{step:>{len(str(total_steps))}}/{total_steps}"
+
+    print(
+        f"Step {step_fmt} | Temp: {current_temp:.4f} | "
+        f"Sat Clauses (Best/Avg): {int(max_satisfied)}/{mean_satisfied:.1f} of {len_clauses} | "
+        f"Energy (Min/Avg): {min_energy:.2f}/{mean_energy:.2f} | "
+        f"Solved Runs: {success_count}/{batch_size}"
+    )
 
 # graph
 def pubo_visualize_1d_linear(encode, output_dir="./visualizations"):
