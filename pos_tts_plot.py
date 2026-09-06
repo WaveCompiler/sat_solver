@@ -10,9 +10,9 @@ import torch
 
 DATASET_PATHS = {
     20: "/home/taehy/sat/sat_problem_dataset/uf20-91.tar/*.cnf",
-    50: "/home/taehy/sat/sat_problem_dataset/uf50-218.tar/*.cnf",
-    100: "/home/taehy/sat/sat_problem_dataset/uf100-430.tar/*.cnf",
-    150: "/home/taehy/sat/sat_problem_dataset/uf150-645.tar/ai/hoos/Research/SAT/Formulae/UF150.645.100/*.cnf",
+    # 50: "/home/taehy/sat/sat_problem_dataset/uf50-218.tar/*.cnf",
+    # 100: "/home/taehy/sat/sat_problem_dataset/uf100-430.tar/*.cnf",
+    # 150: "/home/taehy/sat/sat_problem_dataset/uf150-645.tar/ai/hoos/Research/SAT/Formulae/UF150.645.100/*.cnf",
     200: "/home/taehy/sat/sat_problem_dataset/uf200-860.tar/uf200-860/*.cnf",
 }
 
@@ -50,8 +50,6 @@ MAX_PENALTY_FACTOR = 1e3
 # hardware constants
 PUBO_TPI_PU = 1.5e-6
 QUBO_TPI_PU = 1.0e-6
-PUBO_EPI_PU = 5.0e-9
-QUBO_EPI_PU = 1.0e-8
 
 BASE_VARS = 20.0
 PUBO_GROUP_SLICE = [2, 2, 2, 2, 2]
@@ -83,12 +81,6 @@ if __name__ == "__main__":
     # mode = "evaluation"
     selected_dataset = load_sat_instances(mode=mode)
 
-    sizes_evaluated = []
-    tts_qubo_means, tts_qubo_errors = [], []
-    tts_pubo_means, tts_pubo_errors = [], []
-    ets_qubo_means, ets_qubo_errors = [], []
-    ets_pubo_means, ets_pubo_errors = [], []
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device: {device}")
 
@@ -97,9 +89,8 @@ if __name__ == "__main__":
         for file in files:
             print(file)
 
-        sizes_evaluated.append(sat_size)
-        pubo_its_arr = []
-        qubo_its_arr = []
+        pubo_obj_arr = []
+        qubo_obj_arr = []
         log_failure_allowance_level = math.log(1 - TARGET_SUCCESS_RATE)
 
         for file_idx, file in enumerate(files):
@@ -115,6 +106,8 @@ if __name__ == "__main__":
             size_idx = size_keys.index(sat_size)
             pubo_slice = PUBO_GROUP_SLICE[size_idx]
             qubo_slice = QUBO_GROUP_SLICE[size_idx]
+            print(f"pubo_slice: {pubo_slice}")
+            print(f"qubo_slice: {qubo_slice}")
             
             pubo_num_satisfied, pubo_mean_solved_steps = pubo_success_eval.pubo_subgroup_update_simulated_annealing(pubo_enc, device, PUBO_STEPS, PUBO_START_TEMP, PUBO_END_TEMP, pubo_slice, PUBO_LOG_INTERVAL, PUBO_BATCH_SIZE)
             print(f"pubo_num_satisfied: {pubo_num_satisfied}")
@@ -146,96 +139,59 @@ if __name__ == "__main__":
                 qos_log_failure_rate = math.log(1 - qubo_pos)
                 qos_perc_required_runs = log_failure_allowance_level / qos_log_failure_rate
                 qubo_its = qubo_mean_solved_steps * qos_perc_required_runs
-            
-            pubo_its_arr.append(pubo_its)
-            qubo_its_arr.append(qubo_its)
 
+            pubo_obj = (pubo_pos, pubo_its)
+            qubo_obj = (qubo_pos, qubo_its)
+            
+            pubo_obj_arr.append(pubo_obj)
+            qubo_obj_arr.append(qubo_obj)
             print(f"file [{file_idx+1}/{len(files)}] | PUBO PoS={pubo_pos:.4f}, ITS={pubo_its:.4f} | QUBO PoS={qubo_pos:.4f}, ITS={qubo_its:.4f}")
 
-        pubo_its_arr_np = np.array(pubo_its_arr)
-        qubo_its_arr_np = np.array(qubo_its_arr)
+        pubo_obj_arr_np = np.array(pubo_obj_arr)
+        qubo_obj_arr_np = np.array(qubo_obj_arr)
 
-        pubo_ets_size_growth = pubo_enc["num_vars"] / BASE_VARS
-        qubo_ets_size_growth = qubo_enc["total_num_vars"] / BASE_VARS
+        pubo_pos_vals = pubo_obj_arr_np[:, 0]
+        pubo_tts_vals = pubo_obj_arr_np[:, 1] * PUBO_TPI_PU
 
-        pubo_tts = pubo_its_arr_np * PUBO_TPI_PU 
-        qubo_tts = qubo_its_arr_np * QUBO_TPI_PU
-        pubo_ets = pubo_its_arr_np * PUBO_EPI_PU * pubo_ets_size_growth
-        qubo_ets = qubo_its_arr_np * QUBO_EPI_PU * qubo_ets_size_growth
+        qubo_pos_vals = qubo_obj_arr_np[:, 0]
+        qubo_tts_vals = qubo_obj_arr_np[:, 1] * QUBO_TPI_PU
 
-        tts_pubo_means.append(np.mean(pubo_tts))
-        tts_pubo_errors.append(np.std(pubo_tts) / np.sqrt(len(pubo_tts)))
-        tts_qubo_means.append(np.mean(qubo_tts))
-        tts_qubo_errors.append(np.std(qubo_tts) / np.sqrt(len(qubo_tts)))
-        ets_pubo_means.append(np.mean(pubo_ets))
-        ets_pubo_errors.append(np.std(pubo_ets) / np.sqrt(len(pubo_ets)))
-        ets_qubo_means.append(np.mean(qubo_ets))
-        ets_qubo_errors.append(np.std(qubo_ets) / np.sqrt(len(qubo_ets)))
+        # plot
+        fig, ax = plt.subplots(figsize=(7, 5), dpi=300)
+        ax.scatter(
+            qubo_tts_vals,
+            qubo_pos_vals,
+            color="#1f77b4",
+            edgecolors="black",
+            linewidths=0.5,
+            label="QUBO-PU",
+            alpha=0.6,
+            s=45,
+        )
+        ax.scatter(
+            pubo_tts_vals,
+            pubo_pos_vals,
+            color="#ff7f0e",
+            edgecolors="black",
+            linewidths=0.5,
+            label="PUBO-PU",
+            marker="s",
+            alpha=0.6,
+            s=45,
+        )
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel(r"$\mathrm{TTS}_{0.99}$ in seconds (log scale)", fontsize=11)
+        ax.set_ylabel("Probability of Success (PoS)", fontsize=11)
+        ax.set_title(
+            f"PoS vs. TTS for SAT Size {sat_size} ({mode.capitalize()} Mode)",
+            fontsize=12,
+        )
+        ax.grid(True, which="both", linestyle="--", alpha=0.3)
+        ax.legend(loc="best")
 
-    # -------------------------------------------------------------
-    # PLOTTING FIGURE 3
-    # -------------------------------------------------------------
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4), dpi=300)
-
-    # (a) TTS
-    ax1.errorbar(
-        sizes_evaluated,
-        tts_qubo_means,
-        yerr=tts_qubo_errors,
-        fmt="-o",
-        capsize=3,
-        color="#1f77b4",
-        label="QUBO-PU",
-    )
-    ax1.errorbar(
-        sizes_evaluated,
-        tts_pubo_means,
-        yerr=tts_pubo_errors,
-        fmt="-s",
-        capsize=3,
-        color="#ff7f0e",
-        label="PUBO-PU",
-    )
-
-    ax1.set_yscale("log")
-    ax1.set_xlabel("Problem Size", fontsize=11)
-    ax1.set_ylabel(r"$\mathrm{TTS}_{0.99}$ in seconds", fontsize=11)
-    ax1.set_xticks(sizes_evaluated)
-    ax1.set_title("(a)", fontsize=12)
-    ax1.grid(True, which="both", linestyle="--", alpha=0.3)
-    ax1.legend()
-
-    # (b) ETS
-    ax2.errorbar(
-        sizes_evaluated,
-        ets_qubo_means,
-        yerr=ets_qubo_errors,
-        fmt="-o",
-        capsize=3,
-        color="#1f77b4",
-        label="QUBO-PU",
-    )
-    ax2.errorbar(
-        sizes_evaluated,
-        ets_pubo_means,
-        yerr=ets_pubo_errors,
-        fmt="-s",
-        capsize=3,
-        color="#ff7f0e",
-        label="PUBO-PU",
-    )
-
-    ax2.set_yscale("log")
-    ax2.set_xlabel("Problem Size", fontsize=11)
-    ax2.set_ylabel(r"$\mathrm{ETS}_{0.99}$ in joules", fontsize=11)
-    ax2.set_xticks(sizes_evaluated)
-    ax2.set_title("(b)", fontsize=12)
-    ax2.grid(True, which="both", linestyle="--", alpha=0.3)
-
-    plt.tight_layout()
-    os.makedirs("./visualizations", exist_ok=True)
-    save_path = "./visualizations/tts_ps_plot.png"
-    plt.savefig(save_path, dpi=300)
-    plt.close(fig)
-
-    print(f"\nSaved scaling plot successfully to {save_path}")
+        plt.tight_layout()
+        os.makedirs("./visualizations", exist_ok=True)
+        save_path = f"./visualizations/pos_tts_plot_size_{sat_size}.png"
+        plt.savefig(save_path, dpi=300)
+        plt.close(fig)
