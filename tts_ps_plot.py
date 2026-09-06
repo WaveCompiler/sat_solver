@@ -8,10 +8,9 @@ import pubo_success_eval
 import qubo_success_eval
 import torch
 
-# Map problem size to its corresponding directory glob pattern
 DATASET_PATHS = {
-    20: "/home/taehy/sat/sat_problem_dataset/uf20-91.tar/*.cnf",  # Add your size 20 path if available
-    50: "/home/taehy/sat/sat_problem_dataset/uf50-218.tar/*.cnf",  # Add your size 50 path if available
+    20: "/home/taehy/sat/sat_problem_dataset/uf20-91.tar/*.cnf",
+    50: "/home/taehy/sat/sat_problem_dataset/uf50-218.tar/*.cnf",
     100: "/home/taehy/sat/sat_problem_dataset/uf100-430.tar/*.cnf",
     150: "/home/taehy/sat/sat_problem_dataset/uf150-645.tar/ai/hoos/Research/SAT/Formulae/UF150.645.100/*.cnf",
     200: "/home/taehy/sat/sat_problem_dataset/uf200-860.tar/uf200-860/*.cnf",
@@ -25,38 +24,38 @@ INSTANCE_RANGES = {
     200: (1, 100),
 }
 
-# Hyperparameters
-NUM_FILES_PER_SIZE = 20  # Limit to first 20 instances per problem size
-RUNS_PER_INSTANCE = 100
 TARGET_SUCCESS_RATE = 0.99
 
 # pubo
-PUBO_SIGMA = 2 ** -3
-PUBO_STEPS = 500
+PUBO_SIGMA = 2 ** -7
+PUBO_STEPS = 1000
 PUBO_START_TEMP = 1.0
-PUBO_END_TEMP = 0.01
+PUBO_END_TEMP = 0.1
 PUBO_LOG_INTERVAL = 100
-PUBO_BATCH_SIZE = 100
 
 # qubo
 QUBO_SIGMA = 2 ** -7
-QUBO_STEPS = 5000
+QUBO_STEPS = 3000
 QUBO_START_TEMP = 1.0
 QUBO_END_TEMP = 0.1
-QUBO_LOG_INTERVAL = 250
+QUBO_LOG_INTERVAL = 500
 QUBO_PENALTY = 0.5
+
+RUNS_PER_INSTANCE = 100
+PUBO_BATCH_SIZE = 100
 QUBO_BATCH_SIZE = 100
 
-# Hardware Constants
-# TPI_QUBO_PU = 1.0e-6
-# TPI_PUBO_PU = 1.5e-6
-# EPI_QUBO_PU = 1.0e-8
-# EPI_PUBO_PU = 5.0e-9
+MAX_PENALTY_FACTOR = 1e3
 
-TPI_QUBO_PU = 1
-TPI_PUBO_PU = 1
-EPI_QUBO_PU = 1
-EPI_PUBO_PU = 1
+# hardware constants
+TPI_QUBO_PU = 1.0e-6
+TPI_PUBO_PU = 1.5e-6
+EPI_QUBO_PU = 1.0e-8
+EPI_PUBO_PU = 5.0e-9
+
+BASE_VARS = 20.0
+PUBO_GROUP_SLICE = [2, 2, 2, 2, 2]
+QUBO_GROUP_SLICE = [2, 2, 2, 2, 2]
 
 def extract_file_index(filepath):
     match = re.search(r'-0*(\d+)\.cnf$', filepath)
@@ -74,9 +73,9 @@ def load_sat_instances(mode):
         valid_files = [f for f in sorted_files if start_idx <= extract_file_index(f) <= end_idx]
         
         if mode == "optimization":
-            dataset_files[sat_size] = valid_files[:20]  #
+            dataset_files[sat_size] = valid_files[:10]
         elif mode == "evaluation":
-            dataset_files[sat_size] = valid_files[20:100]  #
+            dataset_files[sat_size] = valid_files[20:100]
         else:
             raise ValueError(f"Unknown mode '{mode}'. Choose 'optimization' or 'evaluation'.")
 
@@ -84,8 +83,8 @@ def load_sat_instances(mode):
 
 if __name__ == "__main__":
     # select mode: "optimization" or "evaluation"
-    # mode = "optimization"
-    mode = "evaluation"
+    mode = "optimization"
+    # mode = "evaluation"
     selected_dataset = load_sat_instances(mode=mode)
 
     # Container for final metrics per size
@@ -104,10 +103,8 @@ if __name__ == "__main__":
             print(file)
 
         sizes_evaluated.append(sat_size)
-
         arr_pubo_its = []
         arr_qubo_its = []
-        
         log_failure_allowance_level = math.log(1 - TARGET_SUCCESS_RATE)
 
         for file_idx, file in enumerate(files):
@@ -119,20 +116,20 @@ if __name__ == "__main__":
             pubo_enc = pubo_success_eval.pubo_encode_sat_prob(lines, device, sigma=PUBO_SIGMA)
             qubo_enc = qubo_success_eval.qubo_encode_sat_prob(lines, device, sigma=QUBO_SIGMA, penalty=QUBO_PENALTY)
 
-            pubo_group = pubo_enc["num_vars"] // 2
-            qubo_group = qubo_enc["total_num_vars"] // 2
-
-            pubo_success_count = 0
-            qubo_success_count = 0
-
-            # Run independent annealing attempts
-            pubo_rates = pubo_success_eval.pubo_subgroup_update_simulated_annealing(pubo_enc, device, PUBO_STEPS, PUBO_START_TEMP, PUBO_END_TEMP, pubo_group, PUBO_LOG_INTERVAL, PUBO_BATCH_SIZE)
-            qubo_rates = qubo_success_eval.qubo_subgroup_update_simulated_annealing(qubo_enc, device, QUBO_STEPS, QUBO_START_TEMP, QUBO_END_TEMP, qubo_group, QUBO_LOG_INTERVAL, QUBO_BATCH_SIZE)
+            size_keys = list(DATASET_PATHS.keys())
+            size_idx = size_keys.index(sat_size)
+            pubo_slice = PUBO_GROUP_SLICE[size_idx]
+            qubo_slice = QUBO_GROUP_SLICE[size_idx]
             
-            pubo_successful_runs = pubo_rates >= TARGET_SUCCESS_RATE 
-            pubo_success_count = pubo_successful_runs.sum().item()
-            qubo_successful_runs = qubo_rates >= TARGET_SUCCESS_RATE 
-            qubo_success_count = qubo_successful_runs.sum().item()
+            pubo_num_satisfied, pubo_mean_solved_steps = pubo_success_eval.pubo_subgroup_update_simulated_annealing(pubo_enc, device, PUBO_STEPS, PUBO_START_TEMP, PUBO_END_TEMP, pubo_slice, PUBO_LOG_INTERVAL, PUBO_BATCH_SIZE)
+            print(f"pubo_num_satisfied: {pubo_num_satisfied}")
+            print(f"pubo_mean_solved_steps: {pubo_mean_solved_steps}")
+            qubo_num_satisfied, qubo_mean_solved_steps = qubo_success_eval.qubo_subgroup_update_simulated_annealing(qubo_enc, device, QUBO_STEPS, QUBO_START_TEMP, QUBO_END_TEMP, qubo_slice, QUBO_LOG_INTERVAL, QUBO_BATCH_SIZE)
+            print(f"qubo_num_satisfied: {qubo_num_satisfied}")
+            print(f"qubo_mean_solved_steps: {qubo_mean_solved_steps}")
+
+            pubo_success_count = pubo_num_satisfied
+            qubo_success_count = qubo_num_satisfied
             
             # Compute Single-Cycle Probabilities
             pos_pubo = pubo_success_count / RUNS_PER_INSTANCE
@@ -140,23 +137,23 @@ if __name__ == "__main__":
 
             # Calculate PUBO ITS
             if pos_pubo >= 1.0:
-                its_pubo = PUBO_STEPS
+                its_pubo = pubo_mean_solved_steps
             elif pos_pubo <= 0.0:
-                its_pubo = np.nan
+                its_pubo = PUBO_STEPS * MAX_PENALTY_FACTOR
             else:
                 pos_log_failure_rate = math.log(1 - pos_pubo)
                 pos_perc_required_runs = log_failure_allowance_level / pos_log_failure_rate
-                its_pubo = PUBO_STEPS * pos_perc_required_runs
+                its_pubo = pubo_mean_solved_steps * pos_perc_required_runs
 
             # Calculate QUBO ITS
-            if pos_qubo == 1.0:
-                its_qubo = QUBO_STEPS
+            if pos_qubo >= 1.0:
+                its_qubo = qubo_mean_solved_steps
             elif pos_qubo == 0.0:
-                its_qubo = np.nan
+                its_qubo = QUBO_STEPS * MAX_PENALTY_FACTOR
             else:
                 qos_log_failure_rate = math.log(1 - pos_qubo)
                 qos_perc_required_runs = log_failure_allowance_level / qos_log_failure_rate
-                its_qubo = QUBO_STEPS * qos_perc_required_runs
+                its_qubo = qubo_mean_solved_steps * qos_perc_required_runs
             
             arr_pubo_its.append(its_pubo)
             arr_qubo_its.append(its_qubo)
@@ -167,29 +164,27 @@ if __name__ == "__main__":
         its_pubo_arr = np.array(arr_pubo_its)
         its_qubo_arr = np.array(arr_qubo_its)
 
-        tts_pubo = its_pubo_arr * TPI_PUBO_PU
-        tts_qubo = its_qubo_arr * TPI_QUBO_PU
-        ets_pubo = its_pubo_arr * EPI_PUBO_PU
-        ets_qubo = its_qubo_arr * EPI_QUBO_PU
+        # tts, ets size growth according to the physical machine size growth
+        tts_size_growth_pubo = 1.0
+        tts_size_growth_qubo = 1.0
+        ets_size_growth_pubo = pubo_enc["num_vars"] / BASE_VARS
+        ets_size_growth_qubo = qubo_enc["total_num_vars"] / BASE_VARS
 
-        # Filter non-finite values
-        v_tts_pubo = tts_pubo[np.isfinite(tts_pubo)]
-        v_tts_qubo = tts_qubo[np.isfinite(tts_qubo)]
-        v_ets_pubo = ets_pubo[np.isfinite(ets_pubo)]
-        v_ets_qubo = ets_qubo[np.isfinite(ets_qubo)]
+        tts_pubo = its_pubo_arr * TPI_PUBO_PU * tts_size_growth_pubo 
+        tts_qubo = its_qubo_arr * TPI_QUBO_PU * tts_size_growth_qubo
+        ets_pubo = its_pubo_arr * EPI_PUBO_PU * ets_size_growth_pubo
+        ets_qubo = its_qubo_arr * EPI_QUBO_PU * ets_size_growth_qubo
 
         # Compute Means and Standard Errors safely
-        tts_pubo_means.append(np.mean(v_tts_pubo) if len(v_tts_pubo) > 0 else np.nan)
-        tts_pubo_errors.append(np.std(v_tts_pubo) / np.sqrt(len(v_tts_pubo)) if len(v_tts_pubo) > 0 else np.nan)
-        
-        tts_qubo_means.append(np.mean(v_tts_qubo) if len(v_tts_qubo) > 0 else np.nan)
-        tts_qubo_errors.append(np.std(v_tts_qubo) / np.sqrt(len(v_tts_qubo)) if len(v_tts_qubo) > 0 else np.nan)
+        tts_pubo_means.append(np.mean(tts_pubo))
+        tts_pubo_errors.append(np.std(tts_pubo) / np.sqrt(len(tts_pubo)))
+        tts_qubo_means.append(np.mean(tts_qubo))
+        tts_qubo_errors.append(np.std(tts_qubo) / np.sqrt(len(tts_qubo)))
+        ets_pubo_means.append(np.mean(ets_pubo))
+        ets_pubo_errors.append(np.std(ets_pubo) / np.sqrt(len(ets_pubo)))
+        ets_qubo_means.append(np.mean(ets_qubo))
+        ets_qubo_errors.append(np.std(ets_qubo) / np.sqrt(len(ets_qubo)))
 
-        ets_pubo_means.append(np.mean(v_ets_pubo) if len(v_ets_pubo) > 0 else np.nan)
-        ets_pubo_errors.append(np.std(v_ets_pubo) / np.sqrt(len(v_ets_pubo)) if len(v_ets_pubo) > 0 else np.nan)
-
-        ets_qubo_means.append(np.mean(v_ets_qubo) if len(v_ets_qubo) > 0 else np.nan)
-        ets_qubo_errors.append(np.std(v_ets_qubo) / np.sqrt(len(v_ets_qubo)) if len(v_ets_qubo) > 0 else np.nan)
 
     # -------------------------------------------------------------
     # PLOTTING FIGURE 3
@@ -253,7 +248,7 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     os.makedirs("./visualizations", exist_ok=True)
-    save_path = "./visualizations/fig3_tts_ets_scaling.png"
+    save_path = "./visualizations/tts_ps_plot.png"
     plt.savefig(save_path, dpi=300)
     plt.close(fig)
 

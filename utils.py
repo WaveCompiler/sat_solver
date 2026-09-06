@@ -54,72 +54,6 @@ def qubo_compute_gradient(spins, encode):
     gradient += torch.matmul(spins, sym_quadratic)
     return gradient
 
-def pubo_compute_energy(spins, encode):
-    bias = encode["bias"]
-    linear = encode["linear"]
-    quadratic = encode["quadratic"]
-    cubic = encode["cubic"]
-    
-    energy = bias + torch.dot(linear, spins)
-    energy += torch.sum(quadratic * torch.outer(spins, spins))
-    cubic_summation_term = 'i,j,k->ijk'
-    energy += torch.sum(cubic * torch.einsum(cubic_summation_term, spins, spins, spins))
-    return energy
-
-def qubo_compute_energy(spins, encode):
-    bias = encode["bias"]
-    linear = encode["linear"]
-    quadratic = encode["quadratic"]
-
-    linear_energy = torch.matmul(spins, linear)
-    quad_interaction = torch.matmul(spins, quadratic)
-    quad_energy = (spins * quad_interaction).sum(dim=1)
-
-    total_energy = bias + linear_energy + quad_energy
-    return total_energy
-
-def solution_found(spins, encode):
-    clauses = encode["clauses"]
-    is_satisfied = count_unsatisfied_clauses(spins, clauses) == 0
-    return is_satisfied
-
-def print_solver_metrics(step, current_temp, current_energy, unsatisfied):
-    print(f"step {step:4d} | current_temp: {current_temp:.4f} | current_energy: {current_energy:6.2f} | unsatisfied clauses: {unsatisfied:3d}")
-
-def verify_and_print_clauses(spins, clauses):
-    spin_list = [int(v) for v in spins.cpu().tolist()]
-    
-    print("="*80)
-    print(f"{'Clause':<8} | {'Conditions':<25} | {'Spins':<25} | {'Status'}")
-    print("="*80)
-    
-    satisfied_count = 0
-    total_clauses = len(clauses)
-    
-    for idx, clause in enumerate(clauses, start=1):
-        cond_str = " or ".join([f"x{x}" if x > 0 else f"-x{abs(x)}" for x in clause])
-        spins_str = ", ".join([f"x{abs(x)}={spin_list[abs(x)-1]}" for x in clause])
-        
-        is_satisfied = False
-        for x_idx in clause:
-            var_idx = abs(x_idx) - 1
-            val = spin_list[var_idx]
-            if (x_idx > 0 and val == 1) or (x_idx < 0 and val == 0):
-                is_satisfied = True
-                break
-                
-        if is_satisfied:
-            satisfied_count += 1
-            status = "satisfied!"
-        else:
-            status = "UNSATISFIED"
-            
-        print(f"{idx:<8} | {cond_str:<25} | {spins_str:<25} | {status}")
-        
-    print("="*80)
-    print(f"Summary: {satisfied_count}/{total_clauses} clauses satisfied.")
-    print("="*80)
-
 def count_unsatisfied_clauses(spins, clauses):
     batch_size = spins.shape[0]
     device = spins.device
@@ -138,40 +72,14 @@ def count_unsatisfied_clauses(spins, clauses):
         unsatisfied_counts += (~clause_satisfied).float()
     return unsatisfied_counts
 
-def get_success_rates(spins, encode, len_clauses):
-    clauses = encode["clauses"]
-    unsatisfied = count_unsatisfied_clauses(spins, clauses)
-    satisfied = len_clauses - unsatisfied
-    success_rates = satisfied / len_clauses
-    return success_rates
-
-def print_solver_metrics(step, total_steps, current_temp, spins, encode, len_clauses):
-    """
-    Prints solver execution metrics aggregated across the current batch.
-    """
-    # Compute batched metrics on GPU
-    energies = qubo_compute_energy(spins, encode)
-    rates = get_success_rates(spins[:, :encode["num_vars"]], encode, len_clauses)
-    unsatisfied = count_unsatisfied_clauses(spins[:, :encode["num_vars"]], encode["clauses"])
-    satisfied = len_clauses - unsatisfied
-
-    # Calculate statistics across the batch
-    mean_energy = energies.mean().item()
-    min_energy = energies.min().item()
-    mean_satisfied = satisfied.mean().item()
-    max_satisfied = satisfied.max().item()
-    success_count = (rates >= config.TARGET_SUCCESS_RATE).sum().item()
+def print_solver_metrics(step, total_steps, current_temp, spins, clauses, unsatisfied, solved_mask):
+    len_clauses = len(clauses)
+    mean_satisfied = (len_clauses - unsatisfied).mean().item()
+    success_count = solved_mask.sum().item()
     batch_size = spins.shape[0]
 
-    # Format step padding dynamically
     step_fmt = f"{step:>{len(str(total_steps))}}/{total_steps}"
-
-    print(
-        f"Step {step_fmt} | Temp: {current_temp:.4f} | "
-        f"Sat Clauses (Best/Avg): {int(max_satisfied)}/{mean_satisfied:.1f} of {len_clauses} | "
-        f"Energy (Min/Avg): {min_energy:.2f}/{mean_energy:.2f} | "
-        f"Solved Runs: {success_count}/{batch_size}"
-    )
+    print(f"Step {step_fmt} | Temp: {current_temp:.4f} | Sat Clauses (Mean/Total): {mean_satisfied:.2f} of {len_clauses} | Solved Runs: {success_count}/{batch_size}")
 
 # graph
 def pubo_visualize_1d_linear(encode, output_dir="./visualizations"):
