@@ -48,8 +48,8 @@ QUBO_BATCH_SIZE = 100
 MAX_PENALTY_FACTOR = 1e3
 
 # hardware constants
-PUBO_TPI_PU = 1.5e-6
-QUBO_TPI_PU = 1.0e-6
+PUBO_TPI_PU = 2.0e-9
+QUBO_TPI_PU = 2.0e-9
 PUBO_EPI_PU = 5.0e-9
 QUBO_EPI_PU = 1.0e-8
 
