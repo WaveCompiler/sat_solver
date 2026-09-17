@@ -1,6 +1,6 @@
 import torch
-import config
-import utils
+import sat_solver.pubo.config as config
+import sat_solver.pubo.utils as utils
 
 def pubo_encode_sat_prob(sat_prob, device, sigma):
     num_vars, num_clauses, clauses = utils.parse_sat_prob(sat_prob)
@@ -105,7 +105,7 @@ def pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, 
         unsatisfied = utils.count_unsatisfied_clauses(spins, clauses)
         
         newly_solved = (unsatisfied == 0) & (~solved_mask)
-        solved_steps[newly_solved] = step
+        solved_steps[newly_solved] = step + 1
         solved_mask[newly_solved] = True
 
         if step % log_interval == 0 or step == steps - 1:

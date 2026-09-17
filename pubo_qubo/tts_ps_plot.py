@@ -4,8 +4,8 @@ import math
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-import pubo_success_eval
-import qubo_success_eval
+import sat_solver.pubo.pubo_success_eval as pubo_success_eval
+import sat_solver.pubo.qubo_success_eval as qubo_success_eval
 import torch
 
 DATASET_PATHS = {
@@ -28,14 +28,14 @@ TARGET_SUCCESS_RATE = 0.99
 
 # pubo
 PUBO_SIGMA = 2 ** -8
-PUBO_STEPS = 1000
+PUBO_MAX_STEPS = 1000
 PUBO_START_TEMP = 1.0
 PUBO_END_TEMP = 0.1
 PUBO_LOG_INTERVAL = 100
 
 # qubo
 QUBO_SIGMA = 2 ** -8
-QUBO_STEPS = 3000
+QUBO_MAX_STEPS = 3000
 QUBO_START_TEMP = 1.0
 QUBO_END_TEMP = 0.1
 QUBO_LOG_INTERVAL = 500
@@ -45,7 +45,7 @@ RUNS_PER_INSTANCE = 100
 PUBO_BATCH_SIZE = 100
 QUBO_BATCH_SIZE = 100
 
-MAX_PENALTY_FACTOR = 1e3
+PENALTY_FACTOR = 1e3
 
 # hardware constants
 PUBO_TPI_PU = 2.0e-9
@@ -116,10 +116,10 @@ if __name__ == "__main__":
             pubo_slice = PUBO_GROUP_SLICE[size_idx]
             qubo_slice = QUBO_GROUP_SLICE[size_idx]
             
-            pubo_num_satisfied, pubo_mean_solved_steps = pubo_success_eval.pubo_subgroup_update_simulated_annealing(pubo_enc, device, PUBO_STEPS, PUBO_START_TEMP, PUBO_END_TEMP, pubo_slice, PUBO_LOG_INTERVAL, PUBO_BATCH_SIZE)
+            pubo_num_satisfied, pubo_mean_solved_steps = pubo_success_eval.pubo_subgroup_update_simulated_annealing(pubo_enc, device, PUBO_MAX_STEPS, PUBO_START_TEMP, PUBO_END_TEMP, pubo_slice, PUBO_LOG_INTERVAL, PUBO_BATCH_SIZE)
             print(f"pubo_num_satisfied: {pubo_num_satisfied}")
             print(f"pubo_mean_solved_steps: {pubo_mean_solved_steps}")
-            qubo_num_satisfied, qubo_mean_solved_steps = qubo_success_eval.qubo_subgroup_update_simulated_annealing(qubo_enc, device, QUBO_STEPS, QUBO_START_TEMP, QUBO_END_TEMP, qubo_slice, QUBO_LOG_INTERVAL, QUBO_BATCH_SIZE)
+            qubo_num_satisfied, qubo_mean_solved_steps = qubo_success_eval.qubo_subgroup_update_simulated_annealing(qubo_enc, device, QUBO_MAX_STEPS, QUBO_START_TEMP, QUBO_END_TEMP, qubo_slice, QUBO_LOG_INTERVAL, QUBO_BATCH_SIZE)
             print(f"qubo_num_satisfied: {qubo_num_satisfied}")
             print(f"qubo_mean_solved_steps: {qubo_mean_solved_steps}")
 
@@ -132,7 +132,7 @@ if __name__ == "__main__":
             if pubo_pos >= 1.0:
                 pubo_its = pubo_mean_solved_steps
             elif pubo_pos <= 0.0:
-                pubo_its = PUBO_STEPS * MAX_PENALTY_FACTOR
+                pubo_its = PUBO_MAX_STEPS * PENALTY_FACTOR
             else:
                 pos_log_failure_rate = math.log(1 - pubo_pos)
                 pos_perc_required_runs = log_failure_allowance_level / pos_log_failure_rate
@@ -141,7 +141,7 @@ if __name__ == "__main__":
             if qubo_pos >= 1.0:
                 qubo_its = qubo_mean_solved_steps
             elif qubo_pos <= 0.0:
-                qubo_its = QUBO_STEPS * MAX_PENALTY_FACTOR
+                qubo_its = QUBO_MAX_STEPS * PENALTY_FACTOR
             else:
                 qos_log_failure_rate = math.log(1 - qubo_pos)
                 qos_perc_required_runs = log_failure_allowance_level / qos_log_failure_rate

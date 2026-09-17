@@ -1,6 +1,6 @@
 import torch
-import utils
-import config
+import sat_solver.pubo.utils as utils
+import sat_solver.pubo.config as config
 
 def pubo_encode_sat_prob(sat_prob, device, sigma):
     num_vars, num_clauses, clauses = utils.parse_sat_prob(sat_prob)

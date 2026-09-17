@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 import os
-import config
+import sat_solver.pubo.config as config
 
 # compute
 def parse_sat_prob(sat_prob):

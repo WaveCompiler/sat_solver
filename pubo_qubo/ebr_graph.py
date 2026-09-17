@@ -4,8 +4,8 @@ import math
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-import pubo_success_eval
-import qubo_success_eval
+import sat_solver.pubo_qubo.pubo_success_eval as pubo_success_eval
+import sat_solver.pubo_qubo.qubo_success_eval as qubo_success_eval
 import torch
 
 DATASET_PATHS = {
