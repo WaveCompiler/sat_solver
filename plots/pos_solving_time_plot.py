@@ -4,10 +4,10 @@ import math
 import os
 import matplotlib.pyplot as plt
 import numpy as np
-import sat_solver.pubo.pubo_success_eval as pubo_success_eval
-import sat_solver.pubo.qubo_success_eval as qubo_success_eval
+import pubo_success_eval
+import qubo_success_eval
 import torch
-import sat_solver.pubo.utils as utils
+import utils
 
 DATASET_PATHS = {
     20: "/home/taehy/sat/sat_problem_dataset/uf20-91.tar/*.cnf",

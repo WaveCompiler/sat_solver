@@ -1,6 +1,6 @@
 import torch
-import sat_solver.pubo.utils as utils
-import sat_solver.pubo.config as config
+import config
+import utils
 
 def pubo_encode_sat_prob(sat_prob, device, sigma):
     num_vars, num_clauses, clauses = utils.parse_sat_prob(sat_prob)
@@ -57,66 +57,67 @@ def pubo_encode_sat_prob(sat_prob, device, sigma):
         "clauses": clauses
     }
 
-def pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval):
-    print("-"*80)
+def pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group_slice, log_interval, batch_size):
     num_vars = encode["num_vars"]
     clauses = encode["clauses"]
-        
-    spins = torch.randint(0, 2, (num_vars,), dtype=torch.float32, device=device)
+    spins = torch.randint(0, 2, (batch_size, num_vars), dtype=torch.float32, device=device)
+    all_indices = None
+    chunks = None
+    cooling_ratio = end_temp / start_temp
+
+    solved_steps = torch.full((batch_size,), steps, dtype=torch.long, device=device)
+    solved_mask = torch.zeros((batch_size,), dtype=torch.bool, device=device)
+    unsatisfied = utils.count_unsatisfied_clauses(spins, clauses)
     
+    initial_zero_mask = (unsatisfied == 0)
+    solved_steps[initial_zero_mask] = 0
+    solved_mask[initial_zero_mask] = True
+
     for step in range(steps):
-        # temperature cooling process
-        cooling_ratio = end_temp / start_temp
+        if (unsatisfied == 0).all():
+            break
+
         progress = step / steps
         decay_factor = cooling_ratio ** progress
         current_temp = start_temp * decay_factor
 
-        # choose batch indices
-        batch_indices = None
-        if step % 2 == 0:
-            # permutation 2-step group(batch_indices) selection strategy
+        if step % group_slice == 0:
             all_indices = torch.randperm(num_vars, device=device)
-            batch_indices = all_indices[:group]
-            complement_indices = all_indices[group:]
-        else:
-            batch_indices = complement_indices
-            
+            chunks = torch.tensor_split(all_indices, group_slice)
+
+        group_idx = step % group_slice
+        batch_indices = chunks[group_idx]
+
         gradient = utils.pubo_compute_gradient(spins, encode)
 
-        # add randomness for gradient descent
-        # binary gradient theory & intuition (for noise construction & comparison with the actual gradient)
-        # 1. why math works: E(s) is linear in s_i since s_i^2 = s_i (binary).
-        #    E(s_i) = A * s_i + B  =>  dE/ds_i = A <= achieved by gradient descent. actual gradient descent.
-        #    E(s_i=1) - E(s_i=0) = (A + B) - B = A <= achieved by mathmatical intuition. we add randomness here to make noise.
-        #    thus, grad_i = dE/ds_i = E(s_i=1) - E(s_i=0) = A
-        #
-        # 2. decision logic:
-        #    grad < 0  =>  E(s_i=1) < E(s_i=0)  =>  turning on LOWERS energy  => target s_i = 1
-        #    grad > 0  =>  E(s_i=1) > E(s_i=0)  =>  turning ON RAISES energy  => target s_i = 0
-        #
-        # 3. update rule:
-        #    (grad_i < noise) sets s_i = 1 when grad is negative, s_i = 0 when grad is positive.
-        scale_noise = torch.rand(len(batch_indices), device=device) * 2 * current_temp
+        scale_noise = torch.rand((batch_size, len(batch_indices)), device=device) * 2 * current_temp
         shift_left = current_temp
         random_noise = scale_noise - shift_left
-        spins[batch_indices] = (gradient[batch_indices] < random_noise).float()
+
+        grad_sub = gradient[:, batch_indices]
+        new_spins_sub = (grad_sub < random_noise).float()
+
+        active_mask = ~solved_mask 
+        active_mask_sub = active_mask.unsqueeze(1).expand(-1, len(batch_indices))
+        current_spins_sub = spins[:, batch_indices]
+        spins[:, batch_indices] = torch.where(active_mask_sub, new_spins_sub, current_spins_sub)
+        
+        unsatisfied = utils.count_unsatisfied_clauses(spins, clauses)
+        
+        newly_solved = (unsatisfied == 0) & (~solved_mask)
+        solved_steps[newly_solved] = step + 1
+        solved_mask[newly_solved] = True
 
         if step % log_interval == 0 or step == steps - 1:
-            current_energy = utils.pubo_compute_energy(spins, encode).item()
-            unsatisfied = utils.count_unsatisfied_clauses(spins, clauses)
-            utils.print_solver_metrics(step, current_temp, current_energy, unsatisfied)
+            utils.print_solver_metrics(step, steps, current_temp, spins, clauses, unsatisfied, solved_mask)
 
-        is_satisfied = utils.solution_found(spins, encode)
-        if is_satisfied:
-            current_energy = utils.pubo_compute_energy(spins, encode).item()
-            unsatisfied = utils.count_unsatisfied_clauses(spins, clauses)
-            utils.print_solver_metrics(step, current_temp, current_energy, unsatisfied)
-            print(f"solution found at step {step}!")
-            break
+    if solved_mask.any():
+        mean_solved_steps = solved_steps[solved_mask].float().mean().item()
+    else:
+        mean_solved_steps = float(steps)
 
-    print("-"*80)
-    
-    return spins, is_satisfied
+    num_satisfied = solved_mask.sum().item()
+    return num_satisfied, mean_solved_steps
 
 if __name__ == "__main__":
     print("="*80)
@@ -146,29 +147,18 @@ if __name__ == "__main__":
     end_temp = config.END_TEMP
     group = encode["num_vars"] // 2
     log_interval = config.LOG_INTERVAL
+    batch_size = config.BATCH_SIZE
     print(f"steps: {steps}")
     print(f"start_temp: {start_temp}")
     print(f"end_temp: {end_temp}")
     print(f"group: {group}")
     print(f"log_interval: {log_interval}")
+    print(f"batch_size: {batch_size}")
 
-    is_satisfied = False
-    count = 0
-    spins = None
-    while not is_satisfied:
-        spins, is_satisfied = pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval)
-
-        if is_satisfied:
-            break
-
-        count += 1
+    rates = pubo_subgroup_update_simulated_annealing(encode, device, steps, start_temp, end_temp, group, log_interval, batch_size)
+    successful_runs = rates >= config.TARGET_SUCCESS_RATE 
+    success_count = successful_runs.sum().item()
+    print(f"success_count: {success_count}")
     
     print("end decoding...")
-    print("="*80)
-
-    utils.verify_and_print_clauses(spins, encode["clauses"])
-    print(f"re-run count: {count}")
-
-    print("="*80)
-    utils.pubo_generate_all_visualizations(encode)
     print("="*80)

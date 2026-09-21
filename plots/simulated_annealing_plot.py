@@ -2,11 +2,11 @@ import glob
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import sat_solver.pubo.utils as utils
+import utils
 import os
 from pubo_solver import pubo_encode_sat_prob
-from sat_solver.pubo.qubo_solver import qubo_encode_sat_prob
-import sat_solver.pubo.config as config
+from qubo_solver import qubo_encode_sat_prob
+import config
 
 def run_anneal(encode, is_qubo, steps, start_temp, end_temp):
     device = encode["linear"].device
