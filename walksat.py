@@ -87,6 +87,18 @@ class WalkSAT:
                 most_recent_var = var
 
         return most_recent_var
+
+    def get_least_recent_flipped_var(self, clause_vars, last_flip_time):
+        least_recent_var = clause_vars[0]
+        min_time = last_flip_time.get(clause_vars[0], -1)
+
+        for var in clause_vars[1:]:
+            var_time = last_flip_time.get(var, -1)
+            if var_time < min_time:
+                min_time = var_time
+                least_recent_var = var
+
+        return least_recent_var
     
     def solve(self, max_steps, max_tries):
         choices = [True, False]
@@ -282,6 +294,12 @@ class WalkSAT:
                 vars[selected_var] = not vars[selected_var]
                 last_flip_time[selected_var] = step
 
+                # print(
+                #     f"Try {try_idx + 1:2d} | Step {step + 1:3d} | "
+                #     f"Flipped var x{selected_var:<2d} -> {vars[selected_var]!s:<5s} | "
+                #     f"Satisfied: {self.count_satisfied_clauses(vars)}/{self.num_clauses} clauses "
+                # )
+
         return status, vars, max_steps, max_tries
 
     def solve_r_novelty_plus(self, max_steps, max_tries, prob_p, walk_prob_wp):
@@ -344,6 +362,64 @@ class WalkSAT:
                 vars[selected_var] = not vars[selected_var]
                 last_flip_time[selected_var] = step
 
+                # print(
+                #     f"Try {try_idx + 1:2d} | Step {step + 1:3d} | "
+                #     f"Flipped var x{selected_var:<2d} -> {vars[selected_var]!s:<5s} | "
+                #     f"Satisfied: {self.count_satisfied_clauses(vars)}/{self.num_clauses} clauses "
+                # )
+
+        return status, vars, max_steps, max_tries
+
+    def solve_novelty_plus_plus(self, max_steps, max_tries, prob_p, div_prob_dp):
+        choices = [True, False]
+        status = False
+
+        for try_idx in range(max_tries):
+            vars = {}
+            for var in range(1, self.num_vars + 1):
+                vars[var] = random.choice(choices)
+            
+            last_flip_time = {}
+
+            for step in range(max_steps):
+                if self.is_satisfied(vars):
+                    status = True
+                    return status, vars, step, try_idx
+                
+                unsatisfied_clauses = self.get_unsatisfied_clauses(vars)
+                selected_clause = random.choice(unsatisfied_clauses)
+
+                clause_vars = []
+                for var in selected_clause:
+                    var_idx = abs(var)
+                    clause_vars.append(var_idx)
+
+                # novelty++ heuristic
+                if random.random() < div_prob_dp:
+                    selected_var = self.get_least_recent_flipped_var(clause_vars, last_flip_time)
+                else:
+                    sorted_vars = self.sort_clause_vars(clause_vars, vars, last_flip_time)
+                    best_var = sorted_vars[0]
+                    second_best_var = sorted_vars[1]
+                    most_recent_flipped_var = self.get_most_recent_flipped_var(clause_vars, last_flip_time)
+
+                    if best_var != most_recent_flipped_var:
+                        selected_var = best_var
+                    else:
+                        if random.random() < prob_p:
+                            selected_var = second_best_var
+                        else:
+                            selected_var = best_var
+
+                vars[selected_var] = not vars[selected_var]
+                last_flip_time[selected_var] = step
+
+                # print(
+                #     f"Try {try_idx + 1:2d} | Step {step + 1:3d} | "
+                #     f"Flipped var x{selected_var:<2d} -> {vars[selected_var]!s:<5s} | "
+                #     f"Satisfied: {self.count_satisfied_clauses(vars)}/{self.num_clauses} clauses "
+                # )
+
         return status, vars, max_steps, max_tries
 
 if __name__ == "__main__":
@@ -357,7 +433,8 @@ if __name__ == "__main__":
     # status, vars, step, try_idx = walk_solver.solve_novelty(max_tries=10, max_steps=1000, prob_p=0.5)
     # status, vars, step, try_idx = walk_solver.solve_r_novelty(max_tries=10, max_steps=1000, prob_p=0.5)
     # status, vars, step, try_idx = walk_solver.solve_novelty_plus(max_tries=10, max_steps=1000, prob_p=0.5, walk_prob_wp=0.01)
-    status, vars, step, try_idx = walk_solver.solve_r_novelty_plus(max_tries=10, max_steps=1000, prob_p=0.5, walk_prob_wp=0.01)
+    # status, vars, step, try_idx = walk_solver.solve_r_novelty_plus(max_tries=10, max_steps=1000, prob_p=0.5, walk_prob_wp=0.01)
+    status, vars, step, try_idx = walk_solver.solve_novelty_plus_plus(max_tries=10, max_steps=1000, prob_p=0.5, div_prob_dp=0.01)
     print(f"status:", status)
     print(f"vars:", vars)
     print(f"step:", step)
