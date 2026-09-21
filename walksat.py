@@ -50,10 +50,10 @@ class WalkSAT:
         num_unsatisfied_clauses = len(unsatisfied_clauses)
         return num_unsatisfied_clauses
     
-    def flip_and_count_unsatisfied_clauses(self, vars, var_to_flip):
-        vars[var_to_flip] = not vars[var_to_flip]
+    def flip_and_count_unsatisfied_clauses(self, vars, var):
+        vars[var] = not vars[var]
         num_unsatisfied_clauses = self.count_unsatisfied_clauses(vars)
-        vars[var_to_flip] = not vars[var_to_flip]
+        vars[var] = not vars[var]
         return num_unsatisfied_clauses
 
     def sort_clause_vars(self, clause_vars, vars, last_flip_time):
