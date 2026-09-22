@@ -1,138 +1,224 @@
-import torch
-import utils
+import random
 import config
-
-# TODO still in progress
+import utils
 
 class G2WSAT:
-    def __init__(self, num_vars, num_clauses, clauses, device):
+    def __init__(self, num_vars, num_clauses, clauses):
         self.num_vars = num_vars
         self.num_clauses = num_clauses
         self.clauses = clauses
-        self.device = torch.device(device)
-        
-        # Clause matrix representation: Shape (num_clauses, num_vars + 1)
-        # Values: +1 for positive literal, -1 for negative literal, 0 for absent
-        self.clause_matrix = torch.zeros((self.num_clauses, self.num_vars + 1), dtype=torch.int8, device=self.device)
-        self.clause_mask = torch.zeros((self.num_clauses, self.num_vars + 1), dtype=torch.bool, device=self.device)
-        
-        for c_idx, clause in enumerate(clauses):
-            for lit in clause:
-                var = abs(lit)
-                sign = 1 if lit > 0 else -1
-                self.clause_matrix[c_idx, var] = sign
-                self.clause_mask[c_idx, var] = True
 
-    def _compute_scores(self, assignment, clause_sat, clause_evals):
-        """
-        Computes score(x) = make(x) - break(x) for all variables in parallel.
-        """
-        unsat_mask = ~clause_sat  # Shape: (C,)
-        
-        # Make score: Unsatisfied clauses that become satisfied if variable is flipped
-        make_scores = (unsat_mask.unsqueeze(1) & self.clause_mask).sum(dim=0, dtype=torch.float32)
-        
-        # Break score: Clauses satisfied by ONLY this variable (sat_count == 1)
-        critical_clauses = (clause_evals == 1)  # Shape: (C,)
-        is_sole_satisfier = (assignment.unsqueeze(0) * self.clause_matrix) > 0
-        
-        break_scores = (critical_clauses.unsqueeze(1) & is_sole_satisfier).sum(dim=0, dtype=torch.float32)
-        
-        return make_scores - break_scores
-
-    def solve(self, max_steps=10000, prob_p=0.5, div_prob_dp=0.01):
-        V = self.num_vars
-        
-        # Random initial assignment in {-1, +1}
-        assignment = torch.where(
-            torch.rand(V + 1, device=self.device) > 0.5,
-            torch.tensor(1, dtype=torch.int8, device=self.device),
-            torch.tensor(-1, dtype=torch.int8, device=self.device)
-        )
-        
-        # Track last step each variable was flipped
-        last_flip_time = torch.full((V + 1,), -1, dtype=torch.long, device=self.device)
-        
-        # Promising decreasing variable set
-        promising_set = torch.zeros(V + 1, dtype=torch.bool, device=self.device)
-
-        for step in range(max_steps):
-            # Evaluate clauses in parallel
-            clause_evals = torch.matmul(self.clause_matrix.float(), assignment.float())
-            clause_sat = clause_evals > 0
-            
-            # Return early if solution is found
-            if torch.all(clause_sat):
-                solution = (assignment[1:] > 0).cpu().tolist()
-                return True, solution, step, 0
-
-            # Compute scores for all variables simultaneously
-            scores = self._compute_scores(assignment, clause_sat, clause_evals)
-            
-            # Filter promising set: variables with positive score
-            is_decreasing = scores > 0
-            promising_set = promising_set & is_decreasing
-            
-            promising_indices = torch.where(promising_set[1:])[0] + 1
-
-            # BRANCH 1: Greedy Step on Promising Decreasing Variable Set
-            if len(promising_indices) > 0:
-                p_scores = scores[promising_indices]
-                max_score = torch.max(p_scores)
-                candidates = promising_indices[p_scores == max_score]
-                
-                if len(candidates) == 1:
-                    selected_var = candidates[0].item()
-                else:
-                    # Tie-breaking by least recently flipped
-                    flip_times = last_flip_time[candidates]
-                    min_idx = torch.argmin(flip_times)
-                    selected_var = candidates[min_idx].item()
-
-            # BRANCH 2: Fallback WalkSAT + Novelty++ Step
+    def is_clause_satisfied(self, clause, vars):
+        for var in clause:
+            if var > 0:
+                is_true = vars[var]
             else:
-                unsat_clauses = torch.where(~clause_sat)[0]
-                rand_c = unsat_clauses[torch.randint(0, len(unsat_clauses), (1,)).item()]
-                c_vars = torch.where(self.clause_mask[rand_c])[0]
-                
-                # Novelty++ Diversification Step
-                if torch.rand(1).item() < div_prob_dp:
-                    flip_times = last_flip_time[c_vars]
-                    selected_var = c_vars[torch.argmin(flip_times)].item()
-                # Standard Novelty Step
-                else:
-                    c_scores = scores[c_vars]
-                    sorted_order = torch.argsort(c_scores, descending=True)
-                    sorted_vars = c_vars[sorted_order]
-                    
-                    best_var = sorted_vars[0]
-                    second_best_var = sorted_vars[1] if len(sorted_vars) > 1 else best_var
-                    
-                    flip_times = last_flip_time[c_vars]
-                    most_recent_var = c_vars[torch.argmax(flip_times)]
-                    
-                    if best_var != most_recent_var:
-                        selected_var = best_var.item()
-                    else:
-                        if torch.rand(1).item() < prob_p:
-                            selected_var = second_best_var.item()
-                        else:
-                            selected_var = best_var.item()
-
-            # Execute flip
-            assignment[selected_var] *= -1
-            last_flip_time[selected_var] = step
-
-            # Update promising set with new decreasing variables
-            new_clause_evals = torch.matmul(self.clause_matrix.float(), assignment.float())
-            new_clause_sat = new_clause_evals > 0
-            new_scores = self._compute_scores(assignment, new_clause_sat, new_clause_evals)
+                var_idx = abs(var)
+                is_true = not vars[var_idx]
             
-            promising_set = promising_set | (new_scores > 0)
-            promising_set[selected_var] = False  # Avoid immediately flipping back
+            if is_true:
+                return True
 
-        return False, [], max_steps, 0
+        return False
 
+    def is_satisfied(self, vars):
+        for clause in self.clauses:
+            clause_satisfied = self.is_clause_satisfied(clause, vars)
+            if not clause_satisfied:
+                return False
+        return True
+
+    def count_satisfied_clauses(self, vars):
+        num_satisfied_clauses = 0
+        for clause in self.clauses:
+            clause_satisfied = self.is_clause_satisfied(clause, vars)
+            if clause_satisfied:
+                num_satisfied_clauses += 1
+
+        return num_satisfied_clauses
+
+    def get_unsatisfied_clauses(self, vars):
+        unsatisfied_clauses = []
+        for clause in self.clauses:
+            clause_satisfied = self.is_clause_satisfied(clause, vars)
+            if not clause_satisfied:
+                unsatisfied_clauses.append(clause)
+        return unsatisfied_clauses
+    
+    def count_unsatisfied_clauses(self, vars):
+        unsatisfied_clauses = self.get_unsatisfied_clauses(vars)
+        num_unsatisfied_clauses = len(unsatisfied_clauses)
+        return num_unsatisfied_clauses
+
+    def flip_and_count_unsatisfied_clauses(self, vars, var):
+        vars[var] = not vars[var]
+        num_unsatisfied_clauses = self.count_unsatisfied_clauses(vars)
+        vars[var] = not vars[var]
+        return num_unsatisfied_clauses
+
+    def sort_clause_vars(self, clause_vars, vars, last_flip_time):
+        # favor
+        # 1. most satisfying clauses variable 
+        # 2. least recently flipped variable
+
+        decorated_vars = []
+        for var in clause_vars:
+            unsat_count = self.flip_and_count_unsatisfied_clauses(vars, var)
+            flip_time = last_flip_time.get(var, -1) # if not flipped, returns default -1
+            decorated_vars.append((unsat_count, flip_time, var))
+        decorated_vars.sort()
+        # print(f"decorated_vars:", decorated_vars)
+
+        sorted_vars = []
+        for item in decorated_vars:
+            var = item[2]
+            sorted_vars.append(var)
+
+        return sorted_vars
+
+    def get_most_recent_flipped_var(self, clause_vars, last_flip_time):
+        most_recent_var = clause_vars[0]
+        max_time = last_flip_time.get(clause_vars[0], -1) # if not flipped, returns default -1
+
+        for var in clause_vars[1:]:
+            var_time = last_flip_time.get(var, -1)
+            if var_time > max_time:
+                max_time = var_time
+                most_recent_var = var
+
+        return most_recent_var
+
+    def get_least_recent_flipped_var(self, clause_vars, last_flip_time):
+        least_recent_var = clause_vars[0]
+        min_time = last_flip_time.get(clause_vars[0], -1)
+
+        for var in clause_vars[1:]:
+            var_time = last_flip_time.get(var, -1)
+            if var_time < min_time:
+                min_time = var_time
+                least_recent_var = var
+
+        return least_recent_var
+
+    def calculate_variable_scores(self, vars):
+        # calculate score for each variable based on the current vars
+        # to find decreasing vars
+        # score(x) = make(x) - break(x)
+        #          = unsat_before - unsat_after
+
+        scores = {}
+        unsatisfied_clauses = self.get_unsatisfied_clauses(vars)
+        num_unsatisfied_clauses = len(unsatisfied_clauses)
+        for var in range(1, self.num_vars + 1):
+            num_unsatisfied_clauses_after_flip = self.flip_and_count_unsatisfied_clauses(vars, var)
+            score = num_unsatisfied_clauses - num_unsatisfied_clauses_after_flip
+            scores[var] = score
+        return scores
+
+    def get_best_promising_var(self, promising_vars, scores, last_flip_time):
+        best_promising_var = None
+        max_score = -float('inf')
+        min_flip_time = float('inf')
+
+        for var in promising_vars:
+            score = scores[var]
+            flip_time = last_flip_time.get(var, -1)
+            print(f"var:", var)
+            print(f"score:", score)
+            print(f"flip_time:", flip_time)
+
+            if score > max_score:
+                max_score = score
+                min_flip_time = flip_time
+                best_promising_var = var
+            elif score == max_score:
+                if flip_time < min_flip_time:
+                    min_flip_time = flip_time
+                    best_promising_var = var
+
+        return best_promising_var
+    
+    def solve_novelty_plus_plus(self, max_steps, max_tries, prob_p, div_prob_dp):
+        choices = [True, False]
+        status = False
+
+        for try_idx in range(max_tries):
+            vars = {}
+            for var in range(1, self.num_vars + 1):
+                vars[var] = random.choice(choices)
+
+            last_flip_time = {}
+            scores = self.calculate_variable_scores(vars)
+            promising_vars = set()
+
+            for step in range(max_steps):
+                if self.is_satisfied(vars):
+                    status = True
+                    return status, vars, step, try_idx
+
+                selected_var = None
+
+                # 1. gradient/greedy step: pick best promising decreasing variable if promising_vars is non-empty
+                if len(promising_vars) > 0:
+                    best_promising_var = self.get_best_promising_var(promising_vars, scores, last_flip_time)
+                    selected_var = best_promising_var
+                    print(f"promising_vars:", promising_vars)
+                    print(f"best_promising_var", best_promising_var)
+                else: # 2. walksat fallback: novelty++ heuristic
+                    unsatisfied_clauses = self.get_unsatisfied_clauses(vars)
+                    selected_clause = random.choice(unsatisfied_clauses)
+
+                    clause_vars = []
+                    for var in selected_clause:
+                        var_idx = abs(var)
+                        clause_vars.append(var_idx)
+
+                    if random.random() < div_prob_dp:
+                        selected_var = self.get_least_recent_flipped_var(clause_vars, last_flip_time)
+                    else:
+                        sorted_vars = self.sort_clause_vars(clause_vars, vars, last_flip_time)
+                        best_var = sorted_vars[0]
+                        second_best_var = sorted_vars[1]
+                        most_recent_flipped_var = self.get_most_recent_flipped_var(clause_vars, last_flip_time)
+
+                        if best_var != most_recent_flipped_var:
+                            selected_var = best_var
+                        else:
+                            if random.random() < prob_p:
+                                selected_var = second_best_var
+                            else:
+                                selected_var = best_var
+
+                # 3. perform the flip
+                vars[selected_var] = not vars[selected_var]
+                last_flip_time[selected_var] = step
+
+                # even though it is not a promising decreasing variable, if decreasing, keep in the set.
+                old_scores = scores.copy()
+                scores = self.calculate_variable_scores(vars)
+
+                # 4-1. update promising_vars
+                # # active promising. this does not strictly enforce promising decreasing variable rule.              
+                for var in range(1, self.num_vars + 1):
+                    if old_scores[var] <= 0 and scores[var] > 0:
+                        promising_vars.add(var)
+                    elif scores[var] <= 0:
+                        promising_vars.discard(var)
+                promising_vars.discard(selected_var)
+
+                # 4-2: strict promising variables only
+                # promising_vars = set()
+                # for var in range(1, self.num_vars + 1):
+                #     if old_scores[var] <= 0 and scores[var] > 0:
+                #         promising_vars.add(var)
+
+                print(
+                    f"Try {try_idx + 1:2d} | Step {step + 1:3d} | "
+                    f"Flipped var x{selected_var:<2d} -> {vars[selected_var]!s:<5s} | "
+                    f"Satisfied: {self.count_satisfied_clauses(vars)}/{self.num_clauses} clauses "
+                )
+
+        return status, vars, max_steps, max_tries
 
 if __name__ == "__main__":
     file_path = config.FILE_PATH 
@@ -140,9 +226,8 @@ if __name__ == "__main__":
     num_vars, num_clauses, clauses = utils.parse_sat_prob(sat_prob)
     sat_prob.close()
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    g2wsat_solver = G2WSAT(num_vars=num_vars, num_clauses=num_clauses, clauses=clauses, device=device)
-    status, vars_solution, step, try_idx = g2wsat_solver.solve(max_steps=1000, prob_p=0.5, div_prob_dp=0.01)
+    g2wsat_solver = G2WSAT(num_vars=num_vars, num_clauses=num_clauses, clauses=clauses)
+    status, vars_solution, step, try_idx = g2wsat_solver.solve_novelty_plus_plus(max_tries=10, max_steps=10000, prob_p=0.5, div_prob_dp=0.01)
     
     print(f"status:", status)
     print(f"vars:", vars_solution)
