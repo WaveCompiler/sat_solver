@@ -123,9 +123,9 @@ class G2WSAT:
         for var in promising_vars:
             score = scores[var]
             flip_time = last_flip_time.get(var, -1)
-            print(f"var:", var)
-            print(f"score:", score)
-            print(f"flip_time:", flip_time)
+            # print(f"var:", var)
+            # print(f"score:", score)
+            # print(f"flip_time:", flip_time)
 
             if score > max_score:
                 max_score = score
@@ -162,8 +162,8 @@ class G2WSAT:
                 if len(promising_vars) > 0:
                     best_promising_var = self.get_best_promising_var(promising_vars, scores, last_flip_time)
                     selected_var = best_promising_var
-                    print(f"promising_vars:", promising_vars)
-                    print(f"best_promising_var", best_promising_var)
+                    # print(f"promising_vars:", promising_vars)
+                    # print(f"best_promising_var", best_promising_var)
                 else: # 2. walksat fallback: novelty++ heuristic
                     unsatisfied_clauses = self.get_unsatisfied_clauses(vars)
                     selected_clause = random.choice(unsatisfied_clauses)
@@ -212,11 +212,11 @@ class G2WSAT:
                 #     if old_scores[var] <= 0 and scores[var] > 0:
                 #         promising_vars.add(var)
 
-                print(
-                    f"Try {try_idx + 1:2d} | Step {step + 1:3d} | "
-                    f"Flipped var x{selected_var:<2d} -> {vars[selected_var]!s:<5s} | "
-                    f"Satisfied: {self.count_satisfied_clauses(vars)}/{self.num_clauses} clauses "
-                )
+                # print(
+                #     f"Try {try_idx + 1:2d} | Step {step + 1:3d} | "
+                #     f"Flipped var x{selected_var:<2d} -> {vars[selected_var]!s:<5s} | "
+                #     f"Satisfied: {self.count_satisfied_clauses(vars)}/{self.num_clauses} clauses "
+                # )
 
         return status, vars, max_steps, max_tries
 
