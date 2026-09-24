@@ -21,6 +21,7 @@ from pubo import (
     PUBO_GROUP_SLICE
 )
 from walksat import WalkSAT
+from adapt_g2wsat import AdaptG2WSATP
 
 DATASETS = {
     "uf20": ("/DATA/FCD_LAB/user1/TH/dataset/uf20-91", "uf20", 10),
@@ -56,6 +57,7 @@ def run_benchmark_for_size(size_key):
     steps_arr = np.arange(1, MAX_STEPS + 1)
 
     all_pubo_pos = []
+    all_adapt_g2wsatp_pos = []
     all_g2wsat_pos = []
     all_walksat_pos = []
     all_gsat_pos = []
@@ -81,6 +83,7 @@ def run_benchmark_for_size(size_key):
             num_vars, num_clauses, clauses = utils.parse_sat_prob(f)
 
         pubo_steps = []
+        adapt_g2wsatp_steps = []
         g2wsat_steps = []
         walksat_steps = []
         gsat_steps = []
@@ -91,7 +94,7 @@ def run_benchmark_for_size(size_key):
             clauses=clauses,
             device=device,
         )
-        for _ in range(RUNS_PER_FILE):
+        for r in range(RUNS_PER_FILE):
             status, _, step, _ = pubo_solver.solve_simulated_annealing(
                 max_steps=PUBO_STEPS,
                 max_tries=MAX_TRIES,
@@ -101,12 +104,25 @@ def run_benchmark_for_size(size_key):
                 sigma=PUBO_SIGMA,
             )
             pubo_steps.append(step if status else float("inf"))
+            print(f"pubo_r:", r)
         print(f"pubo_steps:", pubo_steps)
-        
+
+        adapt_g2wsatp_solver = AdaptG2WSATP(
+            num_vars=num_vars, num_clauses=num_clauses, clauses=clauses
+        )
+        for r in range(RUNS_PER_FILE):
+            status, _, step, _ = adapt_g2wsatp_solver.solve(
+                max_steps=MAX_STEPS,
+                max_tries=MAX_TRIES
+            )
+            adapt_g2wsatp_steps.append(step if status else float("inf"))
+            print(f"adapt_g2wsatp_r:", r)
+        print(f"adapt_g2wsatp_steps:", adapt_g2wsatp_steps)
+
         g2wsat_solver = G2WSAT(
             num_vars=num_vars, num_clauses=num_clauses, clauses=clauses
         )
-        for _ in range(RUNS_PER_FILE):
+        for r in range(RUNS_PER_FILE):
             status, _, step, _ = g2wsat_solver.solve_novelty_plus_plus(
                 max_steps=MAX_STEPS,
                 max_tries=MAX_TRIES,
@@ -114,12 +130,13 @@ def run_benchmark_for_size(size_key):
                 div_prob_dp=div_prob_dp,
             )
             g2wsat_steps.append(step if status else float("inf"))
+            print(f"g2wsat_r:", r)
         print(f"g2wsat_steps:", g2wsat_steps)
 
         walksat_solver = WalkSAT(
             num_vars=num_vars, num_clauses=num_clauses, clauses=clauses
         )
-        for _ in range(RUNS_PER_FILE):
+        for r in range(RUNS_PER_FILE):
             status, _, step, _ = walksat_solver.solve_novelty_plus_plus(
                 max_steps=MAX_STEPS,
                 max_tries=MAX_TRIES,
@@ -127,19 +144,22 @@ def run_benchmark_for_size(size_key):
                 div_prob_dp=div_prob_dp,
             )
             walksat_steps.append(step if status else float("inf"))
+            print(f"walksat_r:", r)
         print(f"walksat_steps:", walksat_steps)
 
         gsat_solver = GSAT(
             num_vars=num_vars, num_clauses=num_clauses, clauses=clauses
         )
-        for _ in range(RUNS_PER_FILE):
+        for r in range(RUNS_PER_FILE):
             status, _, step, _ = gsat_solver.solve(
                 max_steps=MAX_STEPS, max_tries=MAX_TRIES
             )
             gsat_steps.append(step if status else float("inf"))
+            print(f"gsat_r:", r)
         print(f"gsat_steps:", gsat_steps)
 
         all_pubo_pos.append(calculate_pos_vectorized(pubo_steps, steps_arr))
+        all_adapt_g2wsatp_pos.append(calculate_pos_vectorized(adapt_g2wsatp_steps, steps_arr))
         all_g2wsat_pos.append(calculate_pos_vectorized(g2wsat_steps, steps_arr))
         all_walksat_pos.append(calculate_pos_vectorized(walksat_steps, steps_arr))
         all_gsat_pos.append(calculate_pos_vectorized(gsat_steps, steps_arr))
@@ -149,6 +169,7 @@ def run_benchmark_for_size(size_key):
         return
 
     avg_pubo_pos = np.mean(all_pubo_pos, axis=0)
+    avg_adapt_g2wsatp_pos = np.mean(all_adapt_g2wsatp_pos, axis=0)
     avg_g2wsat_pos = np.mean(all_g2wsat_pos, axis=0)
     avg_walksat_pos = np.mean(all_walksat_pos, axis=0)
     avg_gsat_pos = np.mean(all_gsat_pos, axis=0)
@@ -163,6 +184,16 @@ def run_benchmark_for_size(size_key):
         color="#d62728",
         linestyle="-",
         linewidth=2.2,
+        alpha=0.85,
+        zorder=4,
+    )
+    plt.plot(
+        steps_arr,
+        avg_adapt_g2wsatp_pos,
+        label="adaptG2WSAT (Novelty+P)",
+        color="#a9e20b",
+        linestyle="-.",
+        linewidth=2.0,
         alpha=0.85,
         zorder=4,
     )
