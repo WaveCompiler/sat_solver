@@ -24,8 +24,8 @@ from walksat import WalkSAT
 from adapt_g2wsat import AdaptG2WSATP
 
 DATASETS = {
-    "uf20": ("/DATA/FCD_LAB/user1/TH/dataset/uf20-91", "uf20", 10),
-    "uf50": ("/DATA/FCD_LAB/user1/TH/dataset/uf50-218", "uf50", 10),
+    # "uf20": ("/DATA/FCD_LAB/user1/TH/dataset/uf20-91", "uf20", 10),
+    # "uf50": ("/DATA/FCD_LAB/user1/TH/dataset/uf50-218", "uf50", 10),
     "uf100": ("/DATA/FCD_LAB/user1/TH/dataset/uf100-430", "uf100", 10),
     "uf150": (
         "/DATA/FCD_LAB/user1/TH/dataset/uf150-645/ai/hoos/Research/SAT/Formulae/UF150.645.100",
@@ -70,7 +70,10 @@ def run_benchmark_for_size(size_key):
     print(f"==================================================")
 
     for file_idx in range(1, num_files + 1):
-        file_name = f"{prefix}-{file_idx:02d}.cnf"
+        if file_idx < 10:
+            file_name = f"{prefix}-{file_idx:02d}.cnf"  # e.g., uf20-01.cnf
+        else:
+            file_name = f"{prefix}-{file_idx:03d}.cnf"
         file_path = os.path.join(base_dir, file_name)
 
         if not os.path.exists(file_path):
@@ -104,7 +107,7 @@ def run_benchmark_for_size(size_key):
                 sigma=PUBO_SIGMA,
             )
             pubo_steps.append(step if status else float("inf"))
-            print(f"pubo_r:", r)
+            # print(f"pubo_r:", r)
         print(f"pubo_steps:", pubo_steps)
 
         adapt_g2wsatp_solver = AdaptG2WSATP(
@@ -116,7 +119,7 @@ def run_benchmark_for_size(size_key):
                 max_tries=MAX_TRIES
             )
             adapt_g2wsatp_steps.append(step if status else float("inf"))
-            print(f"adapt_g2wsatp_r:", r)
+            # print(f"adapt_g2wsatp_r:", r)
         print(f"adapt_g2wsatp_steps:", adapt_g2wsatp_steps)
 
         g2wsat_solver = G2WSAT(
@@ -130,7 +133,7 @@ def run_benchmark_for_size(size_key):
                 div_prob_dp=div_prob_dp,
             )
             g2wsat_steps.append(step if status else float("inf"))
-            print(f"g2wsat_r:", r)
+            # print(f"g2wsat_r:", r)
         print(f"g2wsat_steps:", g2wsat_steps)
 
         walksat_solver = WalkSAT(
@@ -144,7 +147,7 @@ def run_benchmark_for_size(size_key):
                 div_prob_dp=div_prob_dp,
             )
             walksat_steps.append(step if status else float("inf"))
-            print(f"walksat_r:", r)
+            # print(f"walksat_r:", r)
         print(f"walksat_steps:", walksat_steps)
 
         gsat_solver = GSAT(
@@ -155,7 +158,7 @@ def run_benchmark_for_size(size_key):
                 max_steps=MAX_STEPS, max_tries=MAX_TRIES
             )
             gsat_steps.append(step if status else float("inf"))
-            print(f"gsat_r:", r)
+            # print(f"gsat_r:", r)
         print(f"gsat_steps:", gsat_steps)
 
         all_pubo_pos.append(calculate_pos_vectorized(pubo_steps, steps_arr))
@@ -182,17 +185,15 @@ def run_benchmark_for_size(size_key):
         avg_pubo_pos,
         label="PUBO PU",
         color="#d62728",
-        linestyle="-",
-        linewidth=2.2,
+        linewidth=2.0,
         alpha=0.85,
-        zorder=4,
+        zorder=5,
     )
     plt.plot(
         steps_arr,
         avg_adapt_g2wsatp_pos,
         label="adaptG2WSAT (Novelty+P)",
-        color="#a9e20b",
-        linestyle="-.",
+        color="#efe30a",
         linewidth=2.0,
         alpha=0.85,
         zorder=4,
@@ -202,7 +203,6 @@ def run_benchmark_for_size(size_key):
         avg_g2wsat_pos,
         label="G2WSAT (Novelty++)",
         color="#1f77b4",
-        linestyle="--",
         linewidth=2.0,
         alpha=0.85,
         zorder=3,
@@ -212,8 +212,7 @@ def run_benchmark_for_size(size_key):
         avg_walksat_pos,
         label="WalkSAT (Novelty++)",
         color="#2ca02c",
-        linestyle="-.",
-        linewidth=1.8,
+        linewidth=2.0,
         alpha=0.85,
         zorder=2,
     )
@@ -222,9 +221,8 @@ def run_benchmark_for_size(size_key):
         avg_gsat_pos,
         label="GSAT",
         color="#ff7f0e",
-        linestyle=":",
-        linewidth=2.2,
-        alpha=0.9,
+        linewidth=2.0,
+        alpha=0.85,
         zorder=1,
     )
 
