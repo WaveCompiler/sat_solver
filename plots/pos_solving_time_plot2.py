@@ -26,7 +26,7 @@ from adapt_g2wsat import AdaptG2WSATP
 DATASETS = {
     "uf20": ("/DATA/FCD_LAB/user1/TH/dataset/uf20-91", "uf20", 10),
     "uf50": ("/DATA/FCD_LAB/user1/TH/dataset/uf50-218", "uf50", 10),
-    # "uf100": ("/DATA/FCD_LAB/user1/TH/dataset/uf100-430", "uf100", 10),
+    "uf100": ("/DATA/FCD_LAB/user1/TH/dataset/uf100-430", "uf100", 10),
     "uf150": (
         "/DATA/FCD_LAB/user1/TH/dataset/uf150-645/ai/hoos/Research/SAT/Formulae/UF150.645.100",
         "uf150",

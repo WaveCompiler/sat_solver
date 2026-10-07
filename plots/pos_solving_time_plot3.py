@@ -45,7 +45,7 @@ DATASETS = {
     ),
 }
 
-RUNS_PER_FILE = 1
+RUNS_PER_FILE = 100
 MAX_STEPS = 10000
 MAX_TRIES = 1
 
@@ -229,7 +229,7 @@ def run_benchmark_for_size(size_key):
     plt.plot(
         steps_arr,
         avg_dipole_pubo_escape_walk1_pos,
-        label="dipole_pubo_escape_walk (escape_prob=0.4)",
+        label="dipole_pubo_escape_walk (ep=0.4)",
         color="#efe30a",
         linewidth=2.0,
         alpha=0.85,
@@ -238,7 +238,7 @@ def run_benchmark_for_size(size_key):
     plt.plot(
         steps_arr,
         avg_dipole_pubo_escape_walk2_pos,
-        label="dipole_pubo_escape_walk (escape_prob=0.5)",
+        label="dipole_pubo_escape_walk (ep=0.5)",
         color="#ff7f0e",
         linewidth=2.0,
         alpha=0.85,
@@ -247,7 +247,7 @@ def run_benchmark_for_size(size_key):
     plt.plot(
         steps_arr,
         avg_dipole_pubo_escape_walk3_pos,
-        label="dipole_pubo_escape_walk (escape_prob=0.6)",
+        label="dipole_pubo_escape_walk (ep=0.6)",
         color="#2ca02c",
         linewidth=2.0,
         alpha=0.85,
@@ -256,7 +256,7 @@ def run_benchmark_for_size(size_key):
     plt.plot(
         steps_arr,
         avg_g2wsat_pos,
-        label="G2wSAT (Novelty++)",
+        label="G2WSAT (Novelty++)",
         color="#1f77b4",
         linewidth=2.0,
         alpha=0.85,
