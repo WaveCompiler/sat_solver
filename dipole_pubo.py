@@ -3,7 +3,7 @@ import torch
 import utils
 from config import PUBO_SIGMA, PUBO_STEPS, PUBO_START_TEMP, PUBO_END_TEMP, PUBO_LOG_INTERVAL, PUBO_BATCH_SIZE, PUBO_GROUP_SLICE
 
-class PUBO:
+class DipolePUBO:
     def __init__(self, num_vars, num_clauses, clauses, device):
         self.num_vars = num_vars
         self.num_clauses = num_clauses
@@ -222,10 +222,9 @@ class PUBO:
                 old_spins = spins.clone()
                 spins[sub_indices] = (grad_sub < random_noise).float()
 
-                print(f"sub_indices:", sub_indices)
-                self.print_vertical_table(gradient, grad_pos, grad_neg, random_noise, sub_indices, old_spins, spins)
-                print(f"Try {try_idx + 1:2d} | Step {step + 1:3d} | Unsatisfied: {unsatisfied}/{self.num_clauses} clauses")
-                print()
+                # print(f"sub_indices:", sub_indices)
+                # self.print_vertical_table(gradient, grad_pos, grad_neg, random_noise, sub_indices, old_spins, spins)
+                # print(f"Try {try_idx + 1:2d} | Step {step + 1:3d} | Unsatisfied: {unsatisfied}/{self.num_clauses} clauses")
 
         vars = self.spins_to_vars(spins)
         return status, vars, max_steps, max_tries
@@ -292,7 +291,7 @@ if __name__ == "__main__":
     sat_prob.close()
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    pubo_solver = PUBO(num_vars=num_vars, num_clauses=num_clauses, clauses=clauses, device=device)
+    pubo_solver = DipolePUBO(num_vars=num_vars, num_clauses=num_clauses, clauses=clauses, device=device)
     # status, vars_solution, step, try_idx = pubo_solver.solve_simulated_annealing(
     #     max_steps=PUBO_STEPS,
     #     max_tries=1,
